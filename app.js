@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = "sequel.library.v1";
-const POSTER_CACHE_KEY = "sequel.posters.v3";
+const POSTER_CACHE_KEY = "sequel.posters.v4";
 
 const state = {
   panel: "home",

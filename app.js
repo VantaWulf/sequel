@@ -4,7 +4,7 @@
  */
 
 const STORAGE_KEY = "sequel.library.v1";
-const POSTER_CACHE_KEY = "sequel.posters.v1";
+const POSTER_CACHE_KEY = "sequel.posters.v3";
 
 const state = {
   panel: "home",
@@ -165,34 +165,106 @@ window.__sequelPosterFallback = function (id, type, letter) {
   return el;
 };
 
+function queryVariants(item) {
+  const base = (item.posterQuery || item.title || "").trim();
+  const title = (item.title || "").trim();
+  const year = item.year ? String(item.year) : "";
+  const set = new Set();
+  [base, title, `${title} ${year}`, `${base} ${year}`, title.replace(/&/g, "and"), base.replace(/&/g, "and")]
+    .map((s) => s.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .forEach((s) => set.add(s));
+  return [...set];
+}
+
+function upscaleItunesArt(url) {
+  if (!url) return "";
+  return String(url)
+    .replace(/100x100bb/g, "600x600bb")
+    .replace(/60x60bb/g, "600x600bb")
+    .replace(/200x200bb/g, "600x600bb");
+}
+
 async function fetchItunesArtwork(query, entity) {
-  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=${entity}&limit=5`;
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(
+    query
+  )}&entity=${entity}&limit=8&country=us`;
   const res = await fetch(url);
   if (!res.ok) return "";
   const data = await res.json();
   const results = data.results || [];
-  const hit =
-    results.find((r) => r.artworkUrl100 || r.artworkUrl60) || results[0];
+  // Prefer tracks/collections whose name roughly matches
+  const q = query.toLowerCase();
+  const scored = results
+    .map((r) => {
+      const name = String(r.trackName || r.collectionName || r.artistName || "").toLowerCase();
+      let score = 0;
+      if (name.includes(q.slice(0, 12).toLowerCase())) score += 3;
+      q.split(/\s+/).forEach((w) => {
+        if (w.length > 2 && name.includes(w)) score += 1;
+      });
+      if (r.artworkUrl100 || r.artworkUrl60) score += 1;
+      return { r, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  const hit = (scored[0] && scored[0].score > 0 ? scored[0].r : null) || results[0];
   if (!hit) return "";
-  const art = hit.artworkUrl100 || hit.artworkUrl60 || "";
-  // request a larger size
-  return art.replace(/100x100bb|60x60bb/g, "400x400bb");
+  return upscaleItunesArt(hit.artworkUrl100 || hit.artworkUrl60 || "");
 }
 
 async function fetchOpenLibraryCover(item) {
-  if (item.isbn) {
-    return `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(item.isbn)}-L.jpg`;
-  }
+  // Prefer cover_i from search — more reliable than ISBN CDN (which 404s often)
   const q = item.posterQuery || item.title;
   const url = `https://openlibrary.org/search.json?title=${encodeURIComponent(q)}${
     item.author ? `&author=${encodeURIComponent(item.author)}` : ""
-  }&limit=3`;
+  }&limit=5`;
   const res = await fetch(url);
   if (!res.ok) return "";
   const data = await res.json();
-  const doc = (data.docs || []).find((d) => d.cover_i) || (data.docs || [])[0];
-  if (!doc?.cover_i) return "";
-  return `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+  const doc = (data.docs || []).find((d) => d.cover_i) || null;
+  if (doc?.cover_i) {
+    return `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+  }
+  if (item.isbn) {
+    return `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(item.isbn)}-L.jpg`;
+  }
+  return "";
+}
+
+/** Wikipedia page summary often has a free thumbnail (CORS ok). */
+async function fetchWikipediaThumb(titles) {
+  for (const title of titles) {
+    if (!title) continue;
+    try {
+      const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(
+        title.replace(/ /g, "_")
+      )}`;
+      const res = await fetch(url, { headers: { Accept: "application/json" } });
+      if (!res.ok) continue;
+      const data = await res.json();
+      const src = data.thumbnail?.source || data.originalimage?.source || "";
+      if (src) return src.replace(/\/\d+px-/, "/500px-");
+    } catch {
+      /* try next */
+    }
+  }
+  return "";
+}
+
+function wikiTitleCandidates(item) {
+  const t = item.title || "";
+  const y = item.year;
+  const list = [];
+  if (item.wiki) list.push(item.wiki);
+  if (item.type === "movie") {
+    list.push(`${t} (${y} film)`, `${t} (film)`, t);
+  } else if (item.type === "tv") {
+    list.push(`${t} (TV series)`, `${t} (American TV series)`, `${t} (TV series)`, t);
+  } else {
+    list.push(`${t} (novel)`, `${t} (book)`, t);
+    if (item.author) list.push(`${t} (${item.author} novel)`);
+  }
+  return [...new Set(list.filter(Boolean))];
 }
 
 async function resolvePosterUrl(item) {
@@ -202,39 +274,50 @@ async function resolvePosterUrl(item) {
     savePosterCache();
     return item.poster;
   }
-  const q = item.posterQuery || item.title;
+
+  const remember = (url) => {
+    if (!url) return "";
+    state.posterCache[item.id] = url;
+    savePosterCache();
+    return url;
+  };
+
   try {
+    // 1) Wikipedia thumbnails (very reliable for popular titles)
+    const wiki = await fetchWikipediaThumb(wikiTitleCandidates(item));
+    if (wiki) return remember(wiki);
+
+    // 2) Type-specific free APIs with multiple query spellings
+    const variants = queryVariants(item);
     if (item.type === "book") {
       const cover = await fetchOpenLibraryCover(item);
-      if (cover) {
-        state.posterCache[item.id] = cover;
-        savePosterCache();
-        return cover;
-      }
-      // fallback to iTunes ebooks
-      const art = await fetchItunesArtwork(q, "ebook");
-      if (art) {
-        state.posterCache[item.id] = art;
-        savePosterCache();
-        return art;
+      if (cover) return remember(cover);
+      for (const q of variants) {
+        const art = await fetchItunesArtwork(q, "ebook");
+        if (art) return remember(art);
       }
     } else if (item.type === "tv") {
-      const art =
-        (await fetchItunesArtwork(q, "tvSeason")) ||
-        (await fetchItunesArtwork(q, "tvShow"));
-      if (art) {
-        state.posterCache[item.id] = art;
-        savePosterCache();
-        return art;
+      for (const q of variants) {
+        const art =
+          (await fetchItunesArtwork(q, "tvSeason")) ||
+          (await fetchItunesArtwork(q, "tvShow"));
+        if (art) return remember(art);
+      }
+      // last resort: movie entity sometimes has series art
+      for (const q of variants) {
+        const art = await fetchItunesArtwork(q, "movie");
+        if (art) return remember(art);
       }
     } else {
-      const art = await fetchItunesArtwork(q, "movie");
-      if (art) {
-        state.posterCache[item.id] = art;
-        savePosterCache();
-        return art;
+      for (const q of variants) {
+        const art = await fetchItunesArtwork(q, "movie");
+        if (art) return remember(art);
       }
     }
+
+    // 3) Wikipedia again with looser title
+    const loose = await fetchWikipediaThumb([item.title]);
+    if (loose) return remember(loose);
   } catch (err) {
     console.warn("poster fetch failed", item.id, err);
   }
@@ -257,6 +340,7 @@ async function hydratePosters(root = document) {
         posterQuery: el.getAttribute("data-poster-query") || "",
         isbn: el.getAttribute("data-poster-isbn") || "",
         author: el.getAttribute("data-poster-author") || "",
+        wiki: el.getAttribute("data-poster-wiki") || "",
       };
     queue.push({ el, item });
   });

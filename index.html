@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0f1419" />
+    <title>Sequel · what to watch & read next</title>
+    <link rel="stylesheet" href="styles.css?v=1" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="top">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <p class="brand-name">Sequel</p>
+          <p class="brand-tag">rate · discover · queue</p>
+        </div>
+      </div>
+      <p class="top-stat" id="lib-stat">0 rated</p>
+    </header>
+
+    <main id="main">
+      <!-- FOR YOU -->
+      <section class="panel" data-panel="foryou" aria-label="For you">
+        <div class="panel-head">
+          <div>
+            <h1>For you</h1>
+            <p class="sub">Suggestions from what you loved (and skipped what you hated).</p>
+          </div>
+        </div>
+        <div class="type-filters" id="rec-type-filters">
+          <button type="button" class="chip active" data-rec-type="all">All</button>
+          <button type="button" class="chip" data-rec-type="movie">Movies</button>
+          <button type="button" class="chip" data-rec-type="tv">TV</button>
+          <button type="button" class="chip" data-rec-type="book">Books</button>
+        </div>
+        <div id="recs-list" class="card-list"></div>
+        <p class="empty" id="recs-empty">
+          Rate a few titles in <strong>Library</strong> (4–5★ works best) so Sequel can suggest what to watch or read next.
+        </p>
+      </section>
+
+      <!-- LIBRARY -->
+      <section class="panel" data-panel="library" aria-label="Library" hidden>
+        <div class="panel-head">
+          <div>
+            <h1>Library</h1>
+            <p class="sub">Everything you’ve watched or read, with your rating.</p>
+          </div>
+          <button type="button" class="btn primary sm" id="open-add-btn">Add</button>
+        </div>
+        <div class="type-filters" id="lib-type-filters">
+          <button type="button" class="chip active" data-lib-type="all">All</button>
+          <button type="button" class="chip" data-lib-type="movie">Movies</button>
+          <button type="button" class="chip" data-lib-type="tv">TV</button>
+          <button type="button" class="chip" data-lib-type="book">Books</button>
+        </div>
+        <div id="library-list" class="card-list"></div>
+        <p class="empty" id="library-empty">Nothing here yet. Tap <strong>Add</strong> to log a movie, show, or book.</p>
+      </section>
+
+      <!-- BROWSE -->
+      <section class="panel" data-panel="browse" aria-label="Browse" hidden>
+        <div class="panel-head">
+          <div>
+            <h1>Browse</h1>
+            <p class="sub">Search the catalog or filter by type.</p>
+          </div>
+        </div>
+        <label class="field">
+          <span class="sr-only">Search</span>
+          <input type="search" id="browse-search" placeholder="Search titles, authors, genres…" autocomplete="off" />
+        </label>
+        <div class="type-filters" id="browse-type-filters">
+          <button type="button" class="chip active" data-browse-type="all">All</button>
+          <button type="button" class="chip" data-browse-type="movie">Movies</button>
+          <button type="button" class="chip" data-browse-type="tv">TV</button>
+          <button type="button" class="chip" data-browse-type="book">Books</button>
+        </div>
+        <div id="browse-list" class="card-list"></div>
+      </section>
+    </main>
+
+    <nav class="tabbar" aria-label="Main">
+      <button type="button" class="tab active" data-nav="foryou">
+        <span class="tab-ico" aria-hidden="true">✦</span>
+        For you
+      </button>
+      <button type="button" class="tab" data-nav="library">
+        <span class="tab-ico" aria-hidden="true">▣</span>
+        Library
+      </button>
+      <button type="button" class="tab" data-nav="browse">
+        <span class="tab-ico" aria-hidden="true">⌕</span>
+        Browse
+      </button>
+    </nav>
+
+    <!-- ADD / RATE DIALOG -->
+    <dialog id="rate-dialog" class="dialog">
+      <form method="dialog" class="dialog-body" id="rate-form">
+        <button type="button" class="dialog-x" id="rate-close" aria-label="Close">×</button>
+        <p class="dialog-kicker" id="rate-type">Movie</p>
+        <h2 id="rate-title">Title</h2>
+        <p class="sub" id="rate-meta"></p>
+        <fieldset class="field">
+          <legend>Status</legend>
+          <div class="status-row">
+            <button type="button" class="status-btn active" data-status="done">Finished</button>
+            <button type="button" class="status-btn" data-status="watching">In progress</button>
+            <button type="button" class="status-btn" data-status="dropped">Dropped</button>
+            <button type="button" class="status-btn" data-status="want">Want to</button>
+          </div>
+        </fieldset>
+        <fieldset class="field">
+          <legend>Your rating</legend>
+          <div class="stars" id="rate-stars" role="radiogroup" aria-label="Rating 1 to 5">
+            <button type="button" class="star" data-star="1" aria-label="1 star">★</button>
+            <button type="button" class="star" data-star="2" aria-label="2 stars">★</button>
+            <button type="button" class="star" data-star="3" aria-label="3 stars">★</button>
+            <button type="button" class="star" data-star="4" aria-label="4 stars">★</button>
+            <button type="button" class="star" data-star="5" aria-label="5 stars">★</button>
+          </div>
+          <p class="hint" id="rate-hint">Tap a star (optional for “Want to”).</p>
+        </fieldset>
+        <label class="field">
+          <span>Note (optional)</span>
+          <textarea id="rate-note" rows="2" maxlength="200" placeholder="What stuck with you?"></textarea>
+        </label>
+        <input type="hidden" id="rate-id" />
+        <div class="dialog-actions">
+          <button type="button" class="btn ghost" id="rate-remove" hidden>Remove</button>
+          <button type="button" class="btn ghost" id="rate-cancel">Cancel</button>
+          <button type="submit" class="btn primary" id="rate-save">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- CUSTOM ADD -->
+    <dialog id="add-dialog" class="dialog">
+      <form method="dialog" class="dialog-body" id="add-form">
+        <button type="button" class="dialog-x" id="add-close" aria-label="Close">×</button>
+        <h2>Add a title</h2>
+        <p class="sub">Pick from the catalog, or create your own entry.</p>
+        <label class="field">
+          <span>Search catalog</span>
+          <input type="search" id="add-search" placeholder="Type a title…" autocomplete="off" />
+          <div id="add-results" class="search-results"></div>
+        </label>
+        <p class="divider-or">or create custom</p>
+        <label class="field">
+          <span>Title</span>
+          <input type="text" id="custom-title" maxlength="80" placeholder="Title" />
+        </label>
+        <fieldset class="field">
+          <legend>Type</legend>
+          <div class="status-row">
+            <button type="button" class="status-btn active" data-custom-type="movie">Movie</button>
+            <button type="button" class="status-btn" data-custom-type="tv">TV</button>
+            <button type="button" class="status-btn" data-custom-type="book">Book</button>
+          </div>
+        </fieldset>
+        <label class="field">
+          <span>Genres (comma-separated)</span>
+          <input type="text" id="custom-genres" placeholder="scifi, thriller, drama" />
+        </label>
+        <div class="dialog-actions">
+          <button type="button" class="btn ghost" id="add-cancel">Cancel</button>
+          <button type="button" class="btn primary" id="custom-save">Add custom</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="data.js?v=1"></script>
+    <script src="app.js?v=1"></script>
+  </body>
+</html>

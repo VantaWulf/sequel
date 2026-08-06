@@ -153,7 +153,9 @@ function posterHtml(item, size = "md") {
     item.title || ""
   )}" data-poster-query="${escapeHtml(item.posterQuery || item.title || "")}" data-poster-isbn="${escapeHtml(
     item.isbn || ""
-  )}" data-poster-author="${escapeHtml(item.author || "")}">${posterPlaceholder(item)}</div>`;
+  )}" data-poster-author="${escapeHtml(item.author || "")}" data-poster-wiki="${escapeHtml(
+    item.wiki || ""
+  )}">${posterPlaceholder(item)}</div>`;
 }
 
 window.__sequelPosterFallback = function (id, type, letter) {

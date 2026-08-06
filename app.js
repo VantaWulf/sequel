@@ -91,20 +91,33 @@ function searchCatalog(query, type = "all", limit = 40) {
   let list = catalog();
   if (type !== "all") list = list.filter((x) => x.type === type);
   if (!q) return list.slice(0, limit);
+  const tokens = q.split(/[^a-z0-9]+/).filter((t) => t.length > 1);
   return list
-    .filter((x) => {
+    .map((x) => {
       const hay = [
         x.title,
         x.author,
         x.why,
+        x.posterQuery,
+        x.id,
         ...(x.genres || []),
         ...(x.vibe || []),
       ]
         .join(" ")
         .toLowerCase();
-      return hay.includes(q);
+      // full phrase match scores highest; also match each word (shawshank → The Shawshank Redemption)
+      let score = 0;
+      if (hay.includes(q)) score += 10;
+      tokens.forEach((t) => {
+        if (hay.includes(t)) score += 3;
+        if ((x.title || "").toLowerCase().includes(t)) score += 2;
+      });
+      return { x, score };
     })
-    .slice(0, limit);
+    .filter((r) => r.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((r) => r.x);
 }
 
 /* ---------- posters ---------- */

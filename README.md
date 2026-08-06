@@ -8,10 +8,13 @@ Sequel recommends **movies**, **TV shows**, and **books** from titles you’ve a
 
 | Area | What it does |
 |------|----------------|
+| **Home** | New movies, TV shows, and books with cover art |
 | **Library** | Log finished / in-progress / dropped / want-to titles |
 | **Ratings** | 1–5 stars + optional note |
 | **For you** | Suggestions from genres & vibes you rate highly |
 | **Browse** | Search a built-in catalog; add custom titles |
+
+Cover art loads from free public sources (iTunes / Open Library) and is cached in your browser.
 
 Data stays in **your browser** (`localStorage`) for now — private and fast.
 

@@ -4,9 +4,10 @@
  */
 
 const STORAGE_KEY = "sequel.library.v1";
+const POSTER_CACHE_KEY = "sequel.posters.v1";
 
 const state = {
-  panel: "foryou",
+  panel: "home",
   recType: "all",
   libType: "all",
   browseType: "all",
@@ -16,6 +17,7 @@ const state = {
     rating: 0,
   },
   customType: "movie",
+  posterCache: {},
 };
 
 /* ---------- utils ---------- */
@@ -77,6 +79,7 @@ function resolveItem(id) {
     genres: lib.genres || [],
     vibe: lib.vibe || [],
     why: lib.why || "Custom title",
+    posterQuery: lib.title,
     custom: true,
   };
 }
@@ -102,6 +105,189 @@ function searchCatalog(query, type = "all", limit = 40) {
       return hay.includes(q);
     })
     .slice(0, limit);
+}
+
+/* ---------- posters ---------- */
+
+function loadPosterCache() {
+  try {
+    state.posterCache = JSON.parse(localStorage.getItem(POSTER_CACHE_KEY) || "{}") || {};
+  } catch {
+    state.posterCache = {};
+  }
+}
+
+function savePosterCache() {
+  try {
+    const keys = Object.keys(state.posterCache);
+    // cap cache size
+    if (keys.length > 200) {
+      keys.slice(0, keys.length - 200).forEach((k) => delete state.posterCache[k]);
+    }
+    localStorage.setItem(POSTER_CACHE_KEY, JSON.stringify(state.posterCache));
+  } catch {
+    /* quota — ignore */
+  }
+}
+
+function posterPlaceholder(item) {
+  const letter = escapeHtml((item.title || "?").charAt(0).toUpperCase());
+  const tone =
+    item.type === "movie" ? "ph-movie" : item.type === "tv" ? "ph-tv" : "ph-book";
+  return `<div class="poster-ph ${tone}" aria-hidden="true"><span>${letter}</span></div>`;
+}
+
+function posterHtml(item, size = "md") {
+  const cached = state.posterCache[item.id];
+  const src = cached || item.poster || "";
+  if (src) {
+    return `<img class="poster ${size}" src="${escapeHtml(src)}" alt="" loading="lazy" data-poster-id="${escapeHtml(
+      item.id
+    )}" onerror="this.replaceWith(window.__sequelPosterFallback && window.__sequelPosterFallback('${escapeHtml(
+      item.id
+    )}','${escapeHtml(item.type)}','${escapeHtml((item.title || "?").charAt(0))}'))" />`;
+  }
+  return `<div class="poster ${size} poster-loading" data-poster-id="${escapeHtml(
+    item.id
+  )}" data-poster-type="${escapeHtml(item.type)}" data-poster-title="${escapeHtml(
+    item.title || ""
+  )}" data-poster-query="${escapeHtml(item.posterQuery || item.title || "")}" data-poster-isbn="${escapeHtml(
+    item.isbn || ""
+  )}" data-poster-author="${escapeHtml(item.author || "")}">${posterPlaceholder(item)}</div>`;
+}
+
+window.__sequelPosterFallback = function (id, type, letter) {
+  const tone = type === "movie" ? "ph-movie" : type === "tv" ? "ph-tv" : "ph-book";
+  const el = document.createElement("div");
+  el.className = `poster-ph ${tone}`;
+  el.setAttribute("aria-hidden", "true");
+  el.innerHTML = `<span>${letter || "?"}</span>`;
+  return el;
+};
+
+async function fetchItunesArtwork(query, entity) {
+  const url = `https://itunes.apple.com/search?term=${encodeURIComponent(query)}&entity=${entity}&limit=5`;
+  const res = await fetch(url);
+  if (!res.ok) return "";
+  const data = await res.json();
+  const results = data.results || [];
+  const hit =
+    results.find((r) => r.artworkUrl100 || r.artworkUrl60) || results[0];
+  if (!hit) return "";
+  const art = hit.artworkUrl100 || hit.artworkUrl60 || "";
+  // request a larger size
+  return art.replace(/100x100bb|60x60bb/g, "400x400bb");
+}
+
+async function fetchOpenLibraryCover(item) {
+  if (item.isbn) {
+    return `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(item.isbn)}-L.jpg`;
+  }
+  const q = item.posterQuery || item.title;
+  const url = `https://openlibrary.org/search.json?title=${encodeURIComponent(q)}${
+    item.author ? `&author=${encodeURIComponent(item.author)}` : ""
+  }&limit=3`;
+  const res = await fetch(url);
+  if (!res.ok) return "";
+  const data = await res.json();
+  const doc = (data.docs || []).find((d) => d.cover_i) || (data.docs || [])[0];
+  if (!doc?.cover_i) return "";
+  return `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg`;
+}
+
+async function resolvePosterUrl(item) {
+  if (state.posterCache[item.id]) return state.posterCache[item.id];
+  if (item.poster) {
+    state.posterCache[item.id] = item.poster;
+    savePosterCache();
+    return item.poster;
+  }
+  const q = item.posterQuery || item.title;
+  try {
+    if (item.type === "book") {
+      const cover = await fetchOpenLibraryCover(item);
+      if (cover) {
+        state.posterCache[item.id] = cover;
+        savePosterCache();
+        return cover;
+      }
+      // fallback to iTunes ebooks
+      const art = await fetchItunesArtwork(q, "ebook");
+      if (art) {
+        state.posterCache[item.id] = art;
+        savePosterCache();
+        return art;
+      }
+    } else if (item.type === "tv") {
+      const art =
+        (await fetchItunesArtwork(q, "tvSeason")) ||
+        (await fetchItunesArtwork(q, "tvShow"));
+      if (art) {
+        state.posterCache[item.id] = art;
+        savePosterCache();
+        return art;
+      }
+    } else {
+      const art = await fetchItunesArtwork(q, "movie");
+      if (art) {
+        state.posterCache[item.id] = art;
+        savePosterCache();
+        return art;
+      }
+    }
+  } catch (err) {
+    console.warn("poster fetch failed", item.id, err);
+  }
+  return "";
+}
+
+async function hydratePosters(root = document) {
+  const nodes = root.querySelectorAll("[data-poster-id]");
+  const queue = [];
+  nodes.forEach((el) => {
+    const id = el.getAttribute("data-poster-id");
+    if (!id) return;
+    if (el.tagName === "IMG" && el.getAttribute("src")) return;
+    const item =
+      catalogById(id) ||
+      resolveItem(id) || {
+        id,
+        type: el.getAttribute("data-poster-type") || "movie",
+        title: el.getAttribute("data-poster-title") || "",
+        posterQuery: el.getAttribute("data-poster-query") || "",
+        isbn: el.getAttribute("data-poster-isbn") || "",
+        author: el.getAttribute("data-poster-author") || "",
+      };
+    queue.push({ el, item });
+  });
+
+  // modest concurrency
+  let i = 0;
+  async function worker() {
+    while (i < queue.length) {
+      const job = queue[i++];
+      const url = await resolvePosterUrl(job.item);
+      if (!url) continue;
+      const img = document.createElement("img");
+      img.className = job.el.className.replace("poster-loading", "").trim() + " poster";
+      if (!img.className.includes("poster")) img.className += " poster md";
+      img.src = url;
+      img.alt = "";
+      img.loading = "lazy";
+      img.dataset.posterId = job.item.id;
+      img.onerror = function () {
+        this.replaceWith(
+          window.__sequelPosterFallback(
+            job.item.id,
+            job.item.type,
+            (job.item.title || "?").charAt(0)
+          )
+        );
+      };
+      if (job.el.parentNode) job.el.replaceWith(img);
+    }
+  }
+  await Promise.all([worker(), worker(), worker()]);
 }
 
 /* ---------- storage ---------- */
@@ -270,9 +456,64 @@ function showPanel(name) {
   document.querySelectorAll(".tab").forEach((t) => {
     t.classList.toggle("active", t.dataset.nav === name);
   });
+  if (name === "home") renderHome();
   if (name === "foryou") renderRecs();
   if (name === "library") renderLibrary();
   if (name === "browse") renderBrowse();
+}
+
+function newReleases(type, limit = 12) {
+  return catalog()
+    .filter((c) => c.type === type && (c.newRelease || (c.year && c.year >= 2022)))
+    .sort((a, b) => (b.year || 0) - (a.year || 0))
+    .slice(0, limit);
+}
+
+function trendingPicks(limit = 12) {
+  // Popular evergreen + recent mix
+  return catalog()
+    .slice()
+    .sort((a, b) => {
+      const sa = (a.newRelease ? 20 : 0) + (a.year || 0) / 1000;
+      const sb = (b.newRelease ? 20 : 0) + (b.year || 0) / 1000;
+      return sb - sa;
+    })
+    .slice(0, limit);
+}
+
+function posterTileHtml(item) {
+  const map = libraryMap();
+  const entry = map.get(item.id);
+  const badge = entry?.rating
+    ? `<span class="tile-badge stars">${starsText(entry.rating)}</span>`
+    : item.newRelease
+      ? `<span class="tile-badge new">New</span>`
+      : "";
+  return `
+    <button type="button" class="poster-tile" data-open-rate="${escapeHtml(item.id)}">
+      <div class="poster-frame">
+        ${posterHtml(item, "lg")}
+        ${badge}
+      </div>
+      <span class="tile-title">${escapeHtml(item.title)}</span>
+      <span class="tile-meta">${escapeHtml(
+        [item.year, typeLabel(item.type)].filter(Boolean).join(" · ")
+      )}</span>
+    </button>
+  `;
+}
+
+function renderHome() {
+  const movies = document.getElementById("rail-movies");
+  const tv = document.getElementById("rail-tv");
+  const books = document.getElementById("rail-books");
+  const trending = document.getElementById("rail-trending");
+  if (movies) movies.innerHTML = newReleases("movie", 14).map(posterTileHtml).join("");
+  if (tv) tv.innerHTML = newReleases("tv", 14).map(posterTileHtml).join("");
+  if (books) books.innerHTML = newReleases("book", 14).map(posterTileHtml).join("");
+  if (trending) trending.innerHTML = trendingPicks(14).map(posterTileHtml).join("");
+  updateStat();
+  hydratePosters(document.getElementById("home") || document.querySelector('[data-panel="home"]'));
 }
 
 function mediaCardHtml(item, { mode, entry, rec } = {}) {
@@ -303,7 +544,9 @@ function mediaCardHtml(item, { mode, entry, rec } = {}) {
   return `
     <article class="m-card">
       <div class="m-card-top">
-        <div class="type-badge ${escapeHtml(item.type)}">${typeShort(item.type)}</div>
+        <div class="poster-wrap sm">
+          ${posterHtml(item, "sm")}
+        </div>
         <div class="m-text">
           <h3 class="m-title">${escapeHtml(item.title)}</h3>
           <p class="m-meta">${escapeHtml(metaParts.join(" · ") || typeLabel(item.type))}</p>
@@ -335,6 +578,7 @@ function renderRecs() {
     .join("");
   empty.hidden = recs.length > 0;
   updateStat();
+  hydratePosters(list);
 }
 
 function renderLibrary() {
@@ -358,6 +602,7 @@ function renderLibrary() {
     .join("");
   empty.hidden = items.length > 0;
   updateStat();
+  hydratePosters(list);
 }
 
 function renderBrowse() {
@@ -369,6 +614,7 @@ function renderBrowse() {
   list.innerHTML = hits
     .map((item) => mediaCardHtml(item, { mode: "browse", entry: map.get(item.id) }))
     .join("");
+  hydratePosters(list);
 }
 
 /* ---------- rate dialog ---------- */
@@ -387,6 +633,17 @@ function openRateDialog(id) {
   document.getElementById("rate-title").textContent = item.title;
   const meta = [item.year, item.author, item.why].filter(Boolean).join(" · ");
   document.getElementById("rate-meta").textContent = meta;
+  // optional poster next to title
+  let art = document.getElementById("rate-poster");
+  if (!art) {
+    art = document.createElement("div");
+    art.id = "rate-poster";
+    art.className = "rate-poster";
+    const title = document.getElementById("rate-title");
+    title?.parentNode?.insertBefore(art, title);
+  }
+  art.innerHTML = posterHtml(item, "sm");
+  hydratePosters(art);
   document.getElementById("rate-note").value = entry?.note || "";
   document.querySelectorAll("#rate-dialog [data-status]").forEach((b) => {
     b.classList.toggle("active", b.dataset.status === state.rateDraft.status);
@@ -534,6 +791,16 @@ function setupNav() {
   document.querySelectorAll("[data-nav]").forEach((btn) => {
     btn.addEventListener("click", () => showPanel(btn.dataset.nav));
   });
+  document.querySelectorAll("[data-jump-browse]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const t = btn.dataset.jumpBrowse || "all";
+      state.browseType = t;
+      document.querySelectorAll("[data-browse-type]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.browseType === t);
+      });
+      showPanel("browse");
+    });
+  });
 }
 
 function setupFilters() {
@@ -650,12 +917,13 @@ function setupAddDialog() {
 }
 
 function init() {
+  loadPosterCache();
   setupNav();
   setupFilters();
   setupCards();
   setupRateDialog();
   setupAddDialog();
-  showPanel("foryou");
+  showPanel("home");
   updateStat();
 }
 

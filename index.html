@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f1419" />
     <title>Sequel · what to watch & read next</title>
-    <link rel="stylesheet" href="styles.css?v=1" />
+    <link rel="stylesheet" href="styles.css?v=2" />
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -22,8 +22,49 @@
     </header>
 
     <main id="main">
+      <!-- HOME: new releases -->
+      <section class="panel" data-panel="home" aria-label="Home">
+        <div class="panel-head">
+          <div>
+            <h1>Home</h1>
+            <p class="sub">Fresh movies, shows, and books — tap any cover to rate or save.</p>
+          </div>
+        </div>
+
+        <section class="rail-section" aria-labelledby="new-movies-h">
+          <div class="rail-head">
+            <h2 id="new-movies-h">New movies</h2>
+            <button type="button" class="linkish" data-jump-browse="movie">See all</button>
+          </div>
+          <div class="poster-rail" id="rail-movies"></div>
+        </section>
+
+        <section class="rail-section" aria-labelledby="new-tv-h">
+          <div class="rail-head">
+            <h2 id="new-tv-h">New TV shows</h2>
+            <button type="button" class="linkish" data-jump-browse="tv">See all</button>
+          </div>
+          <div class="poster-rail" id="rail-tv"></div>
+        </section>
+
+        <section class="rail-section" aria-labelledby="new-books-h">
+          <div class="rail-head">
+            <h2 id="new-books-h">New books</h2>
+            <button type="button" class="linkish" data-jump-browse="book">See all</button>
+          </div>
+          <div class="poster-rail" id="rail-books"></div>
+        </section>
+
+        <section class="rail-section" aria-labelledby="trending-h">
+          <div class="rail-head">
+            <h2 id="trending-h">Worth a look</h2>
+          </div>
+          <div class="poster-rail" id="rail-trending"></div>
+        </section>
+      </section>
+
       <!-- FOR YOU -->
-      <section class="panel" data-panel="foryou" aria-label="For you">
+      <section class="panel" data-panel="foryou" aria-label="For you" hidden>
         <div class="panel-head">
           <div>
             <h1>For you</h1>
@@ -84,7 +125,11 @@
     </main>
 
     <nav class="tabbar" aria-label="Main">
-      <button type="button" class="tab active" data-nav="foryou">
+      <button type="button" class="tab active" data-nav="home">
+        <span class="tab-ico" aria-hidden="true">⌂</span>
+        Home
+      </button>
+      <button type="button" class="tab" data-nav="foryou">
         <span class="tab-ico" aria-hidden="true">✦</span>
         For you
       </button>
@@ -173,7 +218,7 @@
       </form>
     </dialog>
 
-    <script src="data.js?v=1"></script>
-    <script src="app.js?v=1"></script>
+    <script src="data.js?v=2"></script>
+    <script src="app.js?v=2"></script>
   </body>
 </html>

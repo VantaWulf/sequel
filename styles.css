@@ -195,6 +195,177 @@ h1 {
   align-items: flex-start;
 }
 
+.poster-wrap.sm {
+  flex-shrink: 0;
+  width: 3.4rem;
+  height: 5rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.poster {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: var(--bg);
+}
+
+.poster.sm {
+  width: 3.4rem;
+  height: 5rem;
+  border-radius: 0.5rem;
+}
+
+.poster.lg {
+  width: 100%;
+  height: 100%;
+  border-radius: 0.55rem;
+}
+
+.poster-ph {
+  width: 100%;
+  height: 100%;
+  min-height: 5rem;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+  font-size: 1.4rem;
+  border-radius: inherit;
+}
+
+.poster-ph.ph-movie {
+  background: linear-gradient(160deg, #3a2f1a, #1a1410);
+  color: var(--gold);
+}
+.poster-ph.ph-tv {
+  background: linear-gradient(160deg, #14303a, #0f1a1e);
+  color: var(--teal);
+}
+.poster-ph.ph-book {
+  background: linear-gradient(160deg, #3a1a28, #1a1014);
+  color: var(--rose);
+}
+
+/* home poster rails */
+.rail-section {
+  margin: 0 0 1.35rem;
+}
+
+.rail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+}
+
+.rail-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.linkish {
+  border: 0;
+  background: transparent;
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 0.82rem;
+  cursor: pointer;
+  padding: 0;
+}
+
+.linkish:hover {
+  text-decoration: underline;
+}
+
+.poster-rail {
+  display: flex;
+  gap: 0.7rem;
+  overflow-x: auto;
+  padding: 0.15rem 0 0.55rem;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+
+.poster-rail::-webkit-scrollbar {
+  height: 6px;
+}
+.poster-rail::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 99px;
+}
+
+.poster-tile {
+  flex: 0 0 auto;
+  width: 7.5rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  scroll-snap-align: start;
+}
+
+.poster-frame {
+  position: relative;
+  width: 7.5rem;
+  height: 11.1rem;
+  border-radius: 0.7rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+}
+
+.poster-tile:hover .poster-frame {
+  border-color: rgba(232, 196, 122, 0.35);
+}
+
+.tile-badge {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  font-size: 0.65rem;
+  font-weight: 800;
+  padding: 0.18rem 0.4rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.65);
+  color: var(--gold);
+  backdrop-filter: blur(6px);
+}
+
+.tile-badge.new {
+  color: #0f1419;
+  background: var(--gold);
+}
+
+.tile-badge.stars {
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+
+.tile-title {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 750;
+  line-height: 1.25;
+  max-height: 2.5em;
+  overflow: hidden;
+}
+
+.tile-meta {
+  display: block;
+  margin-top: 0.1rem;
+  font-size: 0.68rem;
+  color: var(--muted);
+}
+
 .type-badge {
   flex-shrink: 0;
   width: 2.6rem;
@@ -405,6 +576,22 @@ h1 {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--gold);
+}
+
+.rate-poster {
+  width: 4.2rem;
+  height: 6.2rem;
+  border-radius: 0.55rem;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  margin: 0.55rem 0 0.35rem;
+}
+
+.rate-poster .poster,
+.rate-poster .poster-ph {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 .dialog-body h2 {

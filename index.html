@@ -183,6 +183,28 @@
       </form>
     </dialog>
 
+    <!-- FULL DESCRIPTION -->
+    <dialog id="desc-dialog" class="dialog dialog-lg">
+      <div class="dialog-body">
+        <button type="button" class="dialog-x" id="desc-close" aria-label="Close">×</button>
+        <p class="dialog-kicker" id="desc-type">Movie</p>
+        <div class="desc-hero">
+          <div id="desc-poster" class="desc-poster"></div>
+          <div>
+            <h2 id="desc-title">Title</h2>
+            <p class="sub" id="desc-meta"></p>
+            <p class="desc-short" id="desc-short"></p>
+          </div>
+        </div>
+        <h3 class="desc-h">Full description</h3>
+        <p class="desc-body" id="desc-body"></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn ghost" id="desc-done">Close</button>
+          <button type="button" class="btn primary" id="desc-rate" data-open-rate="">Rate / save</button>
+        </div>
+      </div>
+    </dialog>
+
     <!-- CUSTOM ADD -->
     <dialog id="add-dialog" class="dialog">
       <form method="dialog" class="dialog-body" id="add-form">
@@ -218,7 +240,7 @@
       </form>
     </dialog>
 
-    <script src="data.js?v=5"></script>
-    <script src="app.js?v=5"></script>
+    <script src="data.js?v=6"></script>
+    <script src="app.js?v=6"></script>
   </body>
 </html>

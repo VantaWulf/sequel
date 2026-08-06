@@ -130,22 +130,22 @@ function savePosterCache() {
   }
 }
 
-function posterPlaceholder(item) {
-  const letter = escapeHtml((item.title || "?").charAt(0).toUpperCase());
+function posterPlaceholder(item, size = "md") {
   const tone =
     item.type === "movie" ? "ph-movie" : item.type === "tv" ? "ph-tv" : "ph-book";
-  return `<div class="poster-ph ${tone}" aria-hidden="true"><span>${letter}</span></div>`;
+  return `<div class="poster-ph ${tone} ${size}" role="img" aria-label="No poster available"><span class="poster-none-label">No poster available</span></div>`;
 }
 
 function posterHtml(item, size = "md") {
   const cached = state.posterCache[item.id];
-  const src = cached || item.poster || "";
+  let src = cached || item.poster || "";
+  if (src) src = String(src).split("?")[0];
   if (src) {
     return `<img class="poster ${size}" src="${escapeHtml(src)}" alt="" loading="lazy" data-poster-id="${escapeHtml(
       item.id
     )}" onerror="this.replaceWith(window.__sequelPosterFallback && window.__sequelPosterFallback('${escapeHtml(
       item.id
-    )}','${escapeHtml(item.type)}','${escapeHtml((item.title || "?").charAt(0))}'))" />`;
+    )}','${escapeHtml(item.type)}','${escapeHtml(size)}'))" />`;
   }
   return `<div class="poster ${size} poster-loading" data-poster-id="${escapeHtml(
     item.id
@@ -155,16 +155,27 @@ function posterHtml(item, size = "md") {
     item.isbn || ""
   )}" data-poster-author="${escapeHtml(item.author || "")}" data-poster-wiki="${escapeHtml(
     item.wiki || ""
-  )}">${posterPlaceholder(item)}</div>`;
+  )}">${posterPlaceholder(item, size)}</div>`;
 }
 
-window.__sequelPosterFallback = function (id, type, letter) {
+window.__sequelPosterFallback = function (id, type, size) {
   const tone = type === "movie" ? "ph-movie" : type === "tv" ? "ph-tv" : "ph-book";
   const el = document.createElement("div");
-  el.className = `poster-ph ${tone}`;
-  el.setAttribute("aria-hidden", "true");
-  el.innerHTML = `<span>${letter || "?"}</span>`;
+  el.className = `poster-ph ${tone} ${size || "md"}`;
+  el.setAttribute("role", "img");
+  el.setAttribute("aria-label", "No poster available");
+  el.innerHTML = `<span class="poster-none-label">No poster available</span>`;
+  // remember failure so we don't thrash
+  try {
+    if (window.__sequelMarkPosterFail) window.__sequelMarkPosterFail(id);
+  } catch {
+    /* ignore */
+  }
   return el;
+};
+
+window.__sequelMarkPosterFail = function (id) {
+  // leave cache empty so "no poster" shows; don't store broken urls
 };
 
 function queryVariants(item) {
@@ -363,11 +374,7 @@ async function hydratePosters(root = document) {
       img.dataset.posterId = job.item.id;
       img.onerror = function () {
         this.replaceWith(
-          window.__sequelPosterFallback(
-            job.item.id,
-            job.item.type,
-            (job.item.title || "?").charAt(0)
-          )
+          window.__sequelPosterFallback(job.item.id, job.item.type, "lg")
         );
       };
       if (job.el.parentNode) job.el.replaceWith(img);
@@ -576,16 +583,21 @@ function posterTileHtml(item) {
       ? `<span class="tile-badge new">New</span>`
       : "";
   return `
-    <button type="button" class="poster-tile" data-open-rate="${escapeHtml(item.id)}">
-      <div class="poster-frame">
-        ${posterHtml(item, "lg")}
-        ${badge}
-      </div>
-      <span class="tile-title">${escapeHtml(item.title)}</span>
-      <span class="tile-meta">${escapeHtml(
-        [item.year, typeLabel(item.type)].filter(Boolean).join(" · ")
-      )}</span>
-    </button>
+    <div class="poster-tile">
+      <button type="button" class="poster-tile-hit" data-open-rate="${escapeHtml(item.id)}">
+        <div class="poster-frame">
+          ${posterHtml(item, "lg")}
+          ${badge}
+        </div>
+        <span class="tile-title">${escapeHtml(item.title)}</span>
+        <span class="tile-meta">${escapeHtml(
+          [item.year, typeLabel(item.type)].filter(Boolean).join(" · ")
+        )}</span>
+      </button>
+      <button type="button" class="desc-link tile-desc" data-full-desc="${escapeHtml(
+        item.id
+      )}">Full description</button>
+    </div>
   `;
 }
 
@@ -602,6 +614,16 @@ function renderHome() {
   hydratePosters(document.getElementById("home") || document.querySelector('[data-panel="home"]'));
 }
 
+function shortDescription(item) {
+  return item.why || item.description || "";
+}
+
+function fullDescriptionText(item) {
+  if (item.description) return item.description;
+  if (item.why) return item.why;
+  return `${item.title} is a ${typeLabel(item.type).toLowerCase()} in Sequel’s catalog.`;
+}
+
 function mediaCardHtml(item, { mode, entry, rec } = {}) {
   const metaParts = [];
   if (item.year) metaParts.push(item.year);
@@ -611,7 +633,7 @@ function mediaCardHtml(item, { mode, entry, rec } = {}) {
   const why =
     mode === "rec" && rec?.matched?.length
       ? `Because you liked <strong>${escapeHtml(rec.matched.join(", "))}</strong>`
-      : escapeHtml(item.why || "");
+      : escapeHtml(shortDescription(item));
 
   const score =
     mode === "rec" && rec
@@ -639,7 +661,15 @@ function mediaCardHtml(item, { mode, entry, rec } = {}) {
         </div>
         ${score}
       </div>
-      ${why ? `<p class="m-why">${why}</p>` : ""}
+      ${
+        why
+          ? `<p class="m-why">${why} <button type="button" class="desc-link" data-full-desc="${escapeHtml(
+              item.id
+            )}">Full description</button></p>`
+          : `<p class="m-why"><button type="button" class="desc-link" data-full-desc="${escapeHtml(
+              item.id
+            )}">Full description</button></p>`
+      }
       <div class="tags">${tags.map((t) => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
       <div class="row-actions">${action}</div>
     </article>
@@ -922,9 +952,49 @@ function setupFilters() {
   });
 }
 
+function openFullDescription(id) {
+  const item = resolveItem(id);
+  if (!item) return;
+  const dialog = document.getElementById("desc-dialog");
+  if (!dialog) return;
+  document.getElementById("desc-type").textContent = typeLabel(item.type);
+  document.getElementById("desc-title").textContent = item.title;
+  const meta = [item.year, item.author, ...(item.genres || []).slice(0, 4)].filter(Boolean).join(" · ");
+  document.getElementById("desc-meta").textContent = meta;
+  document.getElementById("desc-short").textContent = shortDescription(item) || "";
+  document.getElementById("desc-body").textContent = fullDescriptionText(item);
+  const art = document.getElementById("desc-poster");
+  if (art) {
+    art.innerHTML = posterHtml(item, "md");
+    hydratePosters(art);
+  }
+  const rateBtn = document.getElementById("desc-rate");
+  if (rateBtn) rateBtn.dataset.openRate = id;
+  dialog.showModal();
+}
+
 function setupCards() {
   document.getElementById("main")?.addEventListener("click", (e) => {
+    const descId = e.target.closest("[data-full-desc]")?.dataset.fullDesc;
+    if (descId) {
+      e.preventDefault();
+      e.stopPropagation();
+      openFullDescription(descId);
+      return;
+    }
     const id = e.target.closest("[data-open-rate]")?.dataset.openRate;
+    if (id) openRateDialog(id);
+  });
+
+  document.getElementById("desc-close")?.addEventListener("click", () => {
+    document.getElementById("desc-dialog")?.close();
+  });
+  document.getElementById("desc-done")?.addEventListener("click", () => {
+    document.getElementById("desc-dialog")?.close();
+  });
+  document.getElementById("desc-rate")?.addEventListener("click", (e) => {
+    const id = e.currentTarget.dataset.openRate;
+    document.getElementById("desc-dialog")?.close();
     if (id) openRateDialog(id);
   });
 }

@@ -389,7 +389,7 @@ function posterFinalPlaceholder(item, size = "md") {
   const tone = posterTone(item.type);
   return `<div class="poster-ph ${tone} ${size}" role="img" aria-label="Cover unavailable">
     <span class="skel-letter static">${escapeHtml(posterInitial(item))}</span>
-    <span class="poster-none-label">Cover soon</span>
+    <span class="poster-none-label">No cover</span>
   </div>`;
 }
 

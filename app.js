@@ -1360,14 +1360,37 @@ function showPanel(name) {
     p.hidden = p.dataset.panel !== name;
   });
   document.querySelectorAll(".tab").forEach((t) => {
-    // profile is not a tab — clear tab highlight when on profile
-    t.classList.toggle("active", name !== "profile" && t.dataset.nav === name);
+    // Search/profile are not bottom tabs — highlight Home when searching
+    const tabName = name === "browse" ? "home" : name;
+    t.classList.toggle(
+      "active",
+      tabName !== "profile" && t.dataset.nav === tabName
+    );
   });
   if (name === "home") renderHome();
   if (name === "foryou") renderRecs();
   if (name === "library") renderLibrary();
   if (name === "browse") renderBrowse();
   if (name === "profile") renderProfile();
+}
+
+/** Open search/browse (from Home Search button). */
+function openSearch(opts = {}) {
+  if (opts.type) {
+    state.browseType = opts.type;
+    document.querySelectorAll("[data-browse-type]").forEach((b) => {
+      b.classList.toggle("active", b.dataset.browseType === opts.type);
+    });
+  }
+  showPanel("browse");
+  const input = document.getElementById("browse-search");
+  if (input) {
+    // Focus after paint so keyboard opens on mobile
+    setTimeout(() => {
+      input.focus();
+      if (opts.select) input.select();
+    }, 60);
+  }
 }
 
 function renderProfile() {
@@ -1977,14 +2000,16 @@ function setupNav() {
   document.querySelectorAll("[data-nav]").forEach((btn) => {
     btn.addEventListener("click", () => showPanel(btn.dataset.nav));
   });
+  document.getElementById("home-search-btn")?.addEventListener("click", () => {
+    openSearch();
+  });
+  document.getElementById("browse-back-btn")?.addEventListener("click", () => {
+    showPanel("home");
+  });
   document.querySelectorAll("[data-jump-browse]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const t = btn.dataset.jumpBrowse || "all";
-      state.browseType = t;
-      document.querySelectorAll("[data-browse-type]").forEach((b) => {
-        b.classList.toggle("active", b.dataset.browseType === t);
-      });
-      showPanel("browse");
+      openSearch({ type: t });
     });
   });
 }

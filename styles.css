@@ -1146,6 +1146,28 @@ h1 {
   font-size: 0.84rem;
 }
 
+.btn.search-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--blue-soft);
+  color: var(--blue-dark);
+  border: 1px solid rgba(20, 58, 102, 0.14);
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.btn.search-btn:hover {
+  background: #cfe6f7;
+  filter: none;
+}
+
+.search-ico {
+  font-size: 1.05rem;
+  line-height: 1;
+  font-weight: 400;
+}
+
 .btn.primary {
   background: linear-gradient(180deg, var(--blue-mid), var(--blue-dark));
   color: var(--ivory);

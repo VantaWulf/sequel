@@ -7,7 +7,7 @@
     <title>Sequel · what to watch & read next</title>
     <link rel="icon" href="assets/sequel-logo.jpg" type="image/jpeg" />
     <link rel="apple-touch-icon" href="assets/sequel-logo.jpg" />
-    <link rel="stylesheet" href="styles.css?v=10" />
+    <link rel="stylesheet" href="styles.css?v=11" />
   </head>
   <body class="auth-locked">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -96,6 +96,10 @@
             <div>
               <h1>Home</h1>
             </div>
+            <button type="button" class="btn search-btn sm" id="home-search-btn" aria-label="Search">
+              <span class="search-ico" aria-hidden="true">⌕</span>
+              Search
+            </button>
           </div>
 
           <section class="rail-section" aria-labelledby="new-movies-h">
@@ -195,12 +199,13 @@
           </p>
         </section>
 
-        <!-- BROWSE -->
-        <section class="panel" data-panel="browse" aria-label="Browse" hidden>
+        <!-- BROWSE / SEARCH (opened from Home) -->
+        <section class="panel" data-panel="browse" aria-label="Search" hidden>
           <div class="panel-head">
             <div>
-              <h1>Browse</h1>
+              <h1>Search</h1>
             </div>
+            <button type="button" class="btn ghost sm" id="browse-back-btn">Back</button>
           </div>
           <label class="field">
             <span class="sr-only">Search</span>
@@ -209,6 +214,7 @@
               id="browse-search"
               placeholder="Search titles, authors, genres…"
               autocomplete="off"
+              enterkeyhint="search"
             />
           </label>
           <div class="type-filters" id="browse-type-filters">
@@ -285,10 +291,6 @@
         <button type="button" class="tab" data-nav="library">
           <span class="tab-ico" aria-hidden="true">▣</span>
           Library
-        </button>
-        <button type="button" class="tab" data-nav="browse">
-          <span class="tab-ico" aria-hidden="true">⌕</span>
-          Browse
         </button>
       </nav>
     </div>
@@ -451,6 +453,6 @@
     </dialog>
 
     <script src="data.js?v=13"></script>
-    <script src="app.js?v=17"></script>
+    <script src="app.js?v=18"></script>
   </body>
 </html>

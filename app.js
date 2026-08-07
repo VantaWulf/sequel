@@ -1379,7 +1379,6 @@ function renderProfile() {
   const nameEl = document.getElementById("profile-name");
   const handleEl = document.getElementById("profile-handle");
   const avatarEl = document.getElementById("profile-avatar");
-  const subEl = document.getElementById("profile-sub");
 
   if (nameEl) nameEl.textContent = user?.name || user?.handle || "You";
   if (handleEl) {
@@ -1388,11 +1387,6 @@ function renderProfile() {
   if (avatarEl) {
     const seed = (user?.name || user?.handle || "S").trim();
     avatarEl.textContent = (seed[0] || "S").toUpperCase();
-  }
-  if (subEl) {
-    subEl.textContent = user?.isGuest
-      ? "Guest profile — preferences stay on this browser."
-      : "Your account and taste preferences.";
   }
 
   const ratedEl = document.getElementById("profile-stat-rated");
@@ -1405,7 +1399,6 @@ function renderProfile() {
   const birthEl = document.getElementById("profile-birth");
   const maxEl = document.getElementById("profile-max-rating");
   const streamEl = document.getElementById("profile-streaming");
-  const summaryEl = document.getElementById("profile-prefs-summary");
 
   if (birthEl) {
     birthEl.textContent = profile.birthYear
@@ -1420,11 +1413,6 @@ function renderProfile() {
     streamEl.textContent = profile.streaming?.length
       ? profile.streaming.map((s) => STREAMING_LABELS[s] || s).join(", ")
       : "Not set";
-  }
-  if (summaryEl) {
-    summaryEl.textContent = profile.onboardingDone
-      ? "Used by For you to filter content and bias by services you use."
-      : "Not set yet — these shape For you.";
   }
 }
 

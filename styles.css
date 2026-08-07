@@ -399,10 +399,10 @@ main {
 
 .panel-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  margin: 0.5rem 0 0.85rem;
+  margin: 0.35rem 0 0.75rem;
 }
 
 h1 {
@@ -458,7 +458,7 @@ h1 {
   align-items: baseline;
   justify-content: space-between;
   gap: 0.75rem;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.55rem;
 }
 
 .lib-section-title {
@@ -485,12 +485,7 @@ h1 {
   border-color: rgba(232, 160, 181, 0.3);
 }
 
-.lib-section-sub {
-  margin: 0 0 0.65rem;
-  color: var(--muted);
-  font-size: 0.84rem;
-  line-height: 1.35;
-}
+
 
 .empty {
   color: var(--muted);

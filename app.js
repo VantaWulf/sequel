@@ -5,6 +5,7 @@
 
 const STORAGE_KEY = "sequel.library.v1";
 const POSTER_CACHE_KEY = "sequel.posters.v4";
+const REMOTE_CACHE_KEY = "sequel.remote.v1";
 
 const state = {
   panel: "home",
@@ -18,6 +19,9 @@ const state = {
   },
   customType: "movie",
   posterCache: {},
+  remoteById: {},
+  imdbBusy: false,
+  imdbStatus: "",
 };
 
 /* ---------- utils ---------- */
@@ -64,14 +68,42 @@ function catalogById(id) {
   return catalog().find((x) => x.id === id) || null;
 }
 
+function loadRemoteCache() {
+  try {
+    state.remoteById = JSON.parse(localStorage.getItem(REMOTE_CACHE_KEY) || "{}") || {};
+  } catch {
+    state.remoteById = {};
+  }
+}
+
+function saveRemoteCache() {
+  try {
+    localStorage.setItem(REMOTE_CACHE_KEY, JSON.stringify(state.remoteById));
+  } catch {
+    /* ignore */
+  }
+}
+
+function cacheRemoteItem(item) {
+  if (!item?.id) return;
+  state.remoteById[item.id] = item;
+  if (item.poster) {
+    state.posterCache[item.id] = item.poster;
+    savePosterCache();
+  }
+  saveRemoteCache();
+}
+
 function resolveItem(id) {
   const fromCat = catalogById(id);
   if (fromCat) return fromCat;
-  // custom entries are stored on library items
+  if (state.remoteById[id]) return state.remoteById[id];
+  // custom / saved library entries
   const lib = load().items.find((x) => x.id === id);
   if (!lib) return null;
   return {
     id: lib.id,
+    imdbID: lib.imdbID || "",
     type: lib.type,
     title: lib.title,
     year: lib.year || null,
@@ -79,9 +111,63 @@ function resolveItem(id) {
     genres: lib.genres || [],
     vibe: lib.vibe || [],
     why: lib.why || "Custom title",
+    description: lib.description || "",
+    poster: lib.poster || "",
     posterQuery: lib.title,
-    custom: true,
+    custom: !!lib.custom,
+    source: lib.source || (lib.custom ? "custom" : "local"),
   };
+}
+
+function apiBase() {
+  const host = (typeof location !== "undefined" && location.hostname) || "";
+  if (host === "127.0.0.1" || host === "localhost") {
+    // optional: point local static server at a deployed API
+    return window.SEQUEL_API_BASE || "";
+  }
+  return "";
+}
+
+function omdbUrl(pathQuery) {
+  const base = apiBase();
+  return `${base}/api/omdb?${pathQuery}`;
+}
+
+/** Search IMDb via OMDb proxy (movies & TV). */
+async function searchImdb(query, type = "all") {
+  const q = String(query || "").trim();
+  if (q.length < 2) return [];
+  if (type === "book") return [];
+  try {
+    const res = await fetch(
+      omdbUrl(
+        `mode=search&q=${encodeURIComponent(q)}&type=${encodeURIComponent(type || "all")}`
+      )
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      state.imdbStatus = data.error || data.hint || `IMDb error ${res.status}`;
+      return [];
+    }
+    state.imdbStatus = "";
+    return Array.isArray(data.results) ? data.results : [];
+  } catch (err) {
+    state.imdbStatus = "IMDb search unavailable (is /api/omdb deployed with OMDB_API_KEY?)";
+    console.warn(err);
+    return [];
+  }
+}
+
+async function fetchImdbTitle(imdbID) {
+  const id = String(imdbID || "").replace(/^imdb:/i, "");
+  if (!id) return null;
+  const cached = state.remoteById[`imdb:${id}`];
+  if (cached?.description || cached?.genres?.length) return cached;
+  const res = await fetch(omdbUrl(`mode=title&id=${encodeURIComponent(id)}`));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.item) throw new Error(data.error || "Title not found on IMDb");
+  cacheRemoteItem(data.item);
+  return data.item;
 }
 
 function searchCatalog(query, type = "all", limit = 40) {
@@ -738,17 +824,64 @@ function renderBrowse() {
   const list = document.getElementById("browse-list");
   const q = document.getElementById("browse-search")?.value || "";
   if (!list) return;
-  const hits = searchCatalog(q, state.browseType, 40);
+  const localHits = searchCatalog(q, state.browseType, 24);
   const map = libraryMap();
-  list.innerHTML = hits
-    .map((item) => mediaCardHtml(item, { mode: "browse", entry: map.get(item.id) }))
-    .join("");
+  const status = state.imdbStatus
+    ? `<p class="hint imdb-status">${escapeHtml(state.imdbStatus)}</p>`
+    : q.trim().length >= 2 && state.browseType !== "book"
+      ? `<p class="hint imdb-status" id="imdb-browse-status">Searching IMDb…</p>`
+      : "";
+  list.innerHTML =
+    status +
+    localHits
+      .map((item) => mediaCardHtml(item, { mode: "browse", entry: map.get(item.id) }))
+      .join("");
   hydratePosters(list);
+
+  // Async IMDb (movies/TV)
+  if (q.trim().length >= 2 && state.browseType !== "book") {
+    const req = q.trim();
+    searchImdb(req, state.browseType).then((remote) => {
+      if ((document.getElementById("browse-search")?.value || "").trim() !== req) return;
+      const seen = new Set(localHits.map((x) => x.title.toLowerCase() + "|" + (x.year || "")));
+      const extra = [];
+      remote.forEach((r) => {
+        cacheRemoteItem(r);
+        const key = r.title.toLowerCase() + "|" + (r.year || "");
+        if (seen.has(key)) return;
+        seen.add(key);
+        extra.push(r);
+      });
+      const st = document.getElementById("imdb-browse-status");
+      if (st) {
+        st.textContent = extra.length
+          ? `IMDb: ${extra.length} more result${extra.length === 1 ? "" : "s"}`
+          : state.imdbStatus || "No extra IMDb hits";
+      }
+      if (!extra.length) return;
+      list.insertAdjacentHTML(
+        "beforeend",
+        `<p class="section-label">From IMDb</p>` +
+          extra
+            .map((item) => mediaCardHtml(item, { mode: "browse", entry: map.get(item.id) }))
+            .join("")
+      );
+      hydratePosters(list);
+    });
+  }
 }
 
 /* ---------- rate dialog ---------- */
 
-function openRateDialog(id) {
+async function openRateDialog(id) {
+  // Hydrate full IMDb details when needed
+  if (String(id).startsWith("imdb:")) {
+    try {
+      await fetchImdbTitle(id);
+    } catch (err) {
+      console.warn(err);
+    }
+  }
   const item = resolveItem(id);
   if (!item) return;
   const entry = libraryMap().get(id);
@@ -815,6 +948,7 @@ function saveRating(e) {
     const existing = d.items.find((x) => x.id === id);
     const payload = {
       id,
+      imdbID: item.imdbID || (String(id).startsWith("imdb:") ? id.slice(5) : ""),
       type: item.type,
       title: item.title,
       year: item.year || null,
@@ -822,12 +956,15 @@ function saveRating(e) {
       genres: item.genres || [],
       vibe: item.vibe || [],
       why: item.why || "",
+      description: item.description || "",
+      poster: item.poster || state.posterCache[id] || "",
       status,
       rating: rating || 0,
       note,
       updatedAt: now,
       createdAt: existing?.createdAt || now,
       custom: !!item.custom,
+      source: item.source || (item.custom ? "custom" : "local"),
     };
     if (existing) Object.assign(existing, payload);
     else d.items.push(payload);
@@ -854,6 +991,22 @@ function openAddDialog() {
   document.getElementById("add-dialog")?.showModal();
 }
 
+function searchHitHtml(h, badge = "") {
+  const poster = h.poster
+    ? `<img class="hit-poster" src="${escapeHtml(h.poster)}" alt="" loading="lazy" />`
+    : `<div class="hit-poster hit-poster-empty"></div>`;
+  return `
+      <button type="button" class="search-hit" data-pick="${escapeHtml(h.id)}">
+        ${poster}
+        <span class="hit-text">
+          <strong>${escapeHtml(h.title)}${badge ? ` <em class="hit-badge">${badge}</em>` : ""}</strong>
+          <span>${escapeHtml(typeLabel(h.type))}${h.year ? ` · ${h.year}` : ""}${
+            h.author ? ` · ${escapeHtml(h.author)}` : ""
+          }</span>
+        </span>
+      </button>`;
+}
+
 function renderAddSearch() {
   const q = document.getElementById("add-search")?.value || "";
   const box = document.getElementById("add-results");
@@ -862,18 +1015,35 @@ function renderAddSearch() {
     box.innerHTML = "";
     return;
   }
-  const hits = searchCatalog(q, "all", 12);
-  box.innerHTML = hits
-    .map(
-      (h) => `
-      <button type="button" class="search-hit" data-pick="${escapeHtml(h.id)}">
-        <strong>${escapeHtml(h.title)}</strong>
-        <span>${escapeHtml(typeLabel(h.type))}${h.year ? ` · ${h.year}` : ""}${
-          h.author ? ` · ${escapeHtml(h.author)}` : ""
-        }</span>
-      </button>`
-    )
-    .join("");
+  const hits = searchCatalog(q, "all", 10);
+  box.innerHTML =
+    hits.map((h) => searchHitHtml(h)).join("") +
+    `<p class="hint" id="add-imdb-status">Searching IMDb…</p>`;
+
+  const req = q.trim();
+  searchImdb(req, "all").then((remote) => {
+    if ((document.getElementById("add-search")?.value || "").trim() !== req) return;
+    const st = document.getElementById("add-imdb-status");
+    const seen = new Set(hits.map((h) => h.title.toLowerCase()));
+    const extra = [];
+    remote.forEach((r) => {
+      cacheRemoteItem(r);
+      if (seen.has(r.title.toLowerCase())) return;
+      seen.add(r.title.toLowerCase());
+      extra.push(r);
+    });
+    if (st) {
+      st.textContent = extra.length
+        ? `IMDb results (${extra.length})`
+        : state.imdbStatus || "No extra IMDb results";
+    }
+    if (extra.length) {
+      box.insertAdjacentHTML(
+        "beforeend",
+        extra.map((h) => searchHitHtml(h, "IMDb")).join("")
+      );
+    }
+  });
 }
 
 function addCustomTitle() {
@@ -1087,6 +1257,7 @@ function setupAddDialog() {
 
 function init() {
   loadPosterCache();
+  loadRemoteCache();
   setupNav();
   setupFilters();
   setupCards();

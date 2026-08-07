@@ -18,6 +18,23 @@ Cover art loads from free public sources (iTunes / Open Library) and is cached i
 
 Data stays in **your browser** (`localStorage`) for now — private and fast.
 
+## IMDb search (movies & TV)
+
+Search uses the built-in catalog **plus** [OMDb](http://www.omdbapi.com/) (IMDb data).
+
+1. Get a free key: https://www.omdbapi.com/apikey.aspx  
+2. Set env var **`OMDB_API_KEY`** on Vercel (Project → Settings → Environment Variables).  
+3. Redeploy.
+
+Books stay on the local catalog / custom add / Open Library covers (IMDb doesn’t list books the same way).
+
+Local static server can’t run `/api/omdb` unless you use `vercel dev` or set:
+
+```js
+// in browser console for local testing against a deployed API:
+window.SEQUEL_API_BASE = "https://your-sequel.vercel.app"
+```
+
 ## Run locally
 
 ```bash
@@ -33,6 +50,7 @@ Open **http://127.0.0.1:8090/**
 # push to GitHub, then import on Vercel
 # Build: npm run build
 # Output: public
+# Env: OMDB_API_KEY=...
 ```
 
 ## How recommendations work

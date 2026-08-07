@@ -788,14 +788,18 @@ h1 {
 }
 
 .search-hit {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
   text-align: left;
   border: 1px solid var(--line);
   background: var(--card);
   color: var(--text);
   border-radius: 0.75rem;
-  padding: 0.6rem 0.75rem;
+  padding: 0.5rem 0.65rem;
   cursor: pointer;
   font: inherit;
+  width: 100%;
 }
 
 .search-hit:hover {
@@ -806,9 +810,47 @@ h1 {
   display: block;
 }
 
-.search-hit span {
+.search-hit .hit-text span {
   font-size: 0.78rem;
   color: var(--muted);
+}
+
+.hit-poster {
+  width: 2.4rem;
+  height: 3.5rem;
+  object-fit: cover;
+  border-radius: 0.35rem;
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.hit-poster-empty {
+  border: 1px solid var(--line);
+}
+
+.hit-badge {
+  font-style: normal;
+  font-size: 0.65rem;
+  font-weight: 800;
+  color: var(--gold);
+  background: var(--gold-soft);
+  border-radius: 999px;
+  padding: 0.1rem 0.4rem;
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
+
+.section-label {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--gold);
+}
+
+.imdb-status {
+  margin: 0 0 0.65rem;
 }
 
 .divider-or {

@@ -16,7 +16,14 @@ Sequel recommends **movies**, **TV shows**, and **books** from titles you’ve a
 
 Cover art loads from free public sources (iTunes / Open Library) and is cached in your browser.
 
-Data stays in **your browser** (`localStorage`) for now — private and fast.
+## Accounts
+
+| Mode | What it does |
+|------|----------------|
+| **Create account / Log in** | Cloud account (Supabase Storage). Library syncs across phones. |
+| **Continue as guest** | Local-only on this browser — no cross-device sync. |
+
+Each account has its own library. Guests and cloud users never share ratings.
 
 ## IMDb search (movies & TV)
 
@@ -50,8 +57,16 @@ Open **http://127.0.0.1:8090/**
 # push to GitHub, then import on Vercel
 # Build: npm run build
 # Output: public
-# Env: OMDB_API_KEY=...
+# Env:
+#   OMDB_API_KEY=...
+#   SUPABASE_URL=...
+#   SUPABASE_SERVICE_ROLE_KEY=...
+# Optional: SEQUEL_SESSION_SECRET=...
 ```
+
+On Supabase: enable Storage. The API creates a private bucket named **`sequel`** when possible (or create it manually).
+
+Without Supabase env vars, **Create account** falls back to a **local-only** account (works offline; not shared across phones).
 
 ## How recommendations work
 

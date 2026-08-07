@@ -1,11 +1,19 @@
 /**
  * Sequel — recommend movies, TV, and books from what you rated.
- * Local-first (localStorage). Catalog in data.js; custom titles supported.
+ * Per-user library (localStorage) + optional cloud sync via Supabase.
+ * Catalog in data.js; custom titles supported.
  */
 
-const STORAGE_KEY = "sequel.library.v1";
+const STORAGE_KEY_PREFIX = "sequel.library.v1.";
+const LEGACY_STORAGE_KEY = "sequel.library.v1";
+const AUTH_KEY = "sequel.auth.v1";
+const SESSION_KEY = "sequel.session.v1";
+const CLOUD_TOKEN_KEY = "sequel.cloud.token.v1";
+const CLOUD_USER_KEY = "sequel.cloud.user.v1";
 const POSTER_CACHE_KEY = "sequel.posters.v4";
 const REMOTE_CACHE_KEY = "sequel.remote.v1";
+/** Production API host when opened from a non-Vercel static host. */
+const DEFAULT_SEQUEL_API_BASE = "https://sequel-vantawulfs-projects.vercel.app";
 
 const state = {
   panel: "home",
@@ -22,7 +30,18 @@ const state = {
   remoteById: {},
   imdbBusy: false,
   imdbStatus: "",
+  authMode: "signup", // signup | login
+  currentUserId: null,
+  cloudSyncTimer: null,
 };
+
+function meId() {
+  return state.currentUserId || readSession() || "";
+}
+
+function userStorageKey(userId = meId()) {
+  return STORAGE_KEY_PREFIX + (userId || "guest-local");
+}
 
 /* ---------- utils ---------- */
 
@@ -120,17 +139,76 @@ function resolveItem(id) {
 }
 
 function apiBase() {
-  const host = (typeof location !== "undefined" && location.hostname) || "";
-  if (host === "127.0.0.1" || host === "localhost") {
-    // optional: point local static server at a deployed API
-    return window.SEQUEL_API_BASE || "";
+  if (typeof window !== "undefined" && window.SEQUEL_API_BASE) {
+    return String(window.SEQUEL_API_BASE).replace(/\/$/, "");
   }
-  return "";
+  const host = (typeof location !== "undefined" && location.hostname) || "";
+  if (host === "127.0.0.1" || host === "localhost") return "";
+  if (host.endsWith(".vercel.app")) return "";
+  return DEFAULT_SEQUEL_API_BASE;
+}
+
+function apiUrl(path) {
+  const base = apiBase();
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${base}${p}`;
 }
 
 function omdbUrl(pathQuery) {
-  const base = apiBase();
-  return `${base}/api/omdb?${pathQuery}`;
+  return `${apiUrl("/api/omdb")}?${pathQuery}`;
+}
+
+function readCloudToken() {
+  try {
+    return localStorage.getItem(CLOUD_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function writeCloudToken(token) {
+  try {
+    if (!token) localStorage.removeItem(CLOUD_TOKEN_KEY);
+    else localStorage.setItem(CLOUD_TOKEN_KEY, token);
+  } catch {
+    /* ignore */
+  }
+}
+
+function readCloudUser() {
+  try {
+    return JSON.parse(localStorage.getItem(CLOUD_USER_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function writeCloudUser(user) {
+  try {
+    if (!user) localStorage.removeItem(CLOUD_USER_KEY);
+    else localStorage.setItem(CLOUD_USER_KEY, JSON.stringify(user));
+  } catch {
+    /* ignore */
+  }
+}
+
+async function cloudFetch(path, { method = "GET", body, token } = {}) {
+  const headers = { "Content-Type": "application/json" };
+  const t = token || readCloudToken();
+  if (t) headers["x-sequel-token"] = t;
+  const res = await fetch(apiUrl(path), {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = new Error(payload.error || `Cloud error ${res.status}`);
+    err.status = res.status;
+    err.payload = payload;
+    throw err;
+  }
+  return payload;
 }
 
 /** Search IMDb via OMDb proxy (movies & TV). */
@@ -482,7 +560,7 @@ async function hydratePosters(root = document) {
   await Promise.all([worker(), worker(), worker()]);
 }
 
-/* ---------- storage ---------- */
+/* ---------- storage (per-user) ---------- */
 
 function defaultLibrary() {
   return { items: [], version: 1 };
@@ -490,7 +568,17 @@ function defaultLibrary() {
 
 function load() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const key = userStorageKey();
+    let raw = localStorage.getItem(key);
+    // one-time migrate pre-account library into current user
+    if (!raw) {
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy && meId()) {
+        localStorage.setItem(key, legacy);
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+        raw = legacy;
+      }
+    }
     if (!raw) return defaultLibrary();
     const data = JSON.parse(raw);
     if (!Array.isArray(data.items)) data.items = [];
@@ -501,7 +589,10 @@ function load() {
 }
 
 function save(data) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  const id = meId();
+  if (!id) return;
+  localStorage.setItem(userStorageKey(id), JSON.stringify(data));
+  scheduleCloudLibraryPush();
 }
 
 function update(fn) {
@@ -509,6 +600,72 @@ function update(fn) {
   fn(data);
   save(data);
   return data;
+}
+
+function scheduleCloudLibraryPush() {
+  if (!readCloudToken() || !meId() || meId() === "guest-local") return;
+  clearTimeout(state.cloudSyncTimer);
+  state.cloudSyncTimer = setTimeout(() => {
+    pushLibraryToCloud().catch((err) => console.warn("Cloud library push failed", err));
+  }, 600);
+}
+
+async function pushLibraryToCloud() {
+  const token = readCloudToken();
+  if (!token || meId() === "guest-local") return;
+  const data = load();
+  await cloudFetch("/api/library", {
+    method: "POST",
+    body: { token, library: { items: data.items } },
+  });
+}
+
+async function pullLibraryFromCloud() {
+  const token = readCloudToken();
+  if (!token || meId() === "guest-local") return null;
+  try {
+    const res = await cloudFetch(`/api/library?token=${encodeURIComponent(token)}`, {
+      method: "GET",
+    });
+    if (res.library && Array.isArray(res.library.items)) {
+      const local = load();
+      const cloudItems = res.library.items;
+      // Prefer cloud if it has more (or equal) items, else keep local and push
+      if (cloudItems.length >= local.items.length) {
+        save({ items: cloudItems, version: 1 });
+        // save() schedules another push — cancel and skip for pull
+        clearTimeout(state.cloudSyncTimer);
+      } else if (local.items.length > cloudItems.length) {
+        await pushLibraryToCloud();
+      }
+      return res.library;
+    }
+  } catch (err) {
+    console.warn("Cloud library pull failed", err);
+  }
+  return null;
+}
+
+function applyCloudLibrary(library) {
+  if (!library || !Array.isArray(library.items)) return;
+  const key = userStorageKey();
+  localStorage.setItem(key, JSON.stringify({ items: library.items, version: 1 }));
+}
+
+/** After login: prefer richer library; upload local if cloud is empty. */
+function mergeCloudLibraryOnLogin(library) {
+  const cloudItems = Array.isArray(library?.items) ? library.items : [];
+  const local = load();
+  if (cloudItems.length === 0 && local.items.length > 0) {
+    scheduleCloudLibraryPush();
+    return;
+  }
+  if (cloudItems.length >= local.items.length) {
+    applyCloudLibrary({ items: cloudItems });
+    return;
+  }
+  // local has more entries for this account — keep and push
+  scheduleCloudLibraryPush();
 }
 
 function libraryMap() {
@@ -1255,16 +1412,484 @@ function setupAddDialog() {
   document.getElementById("custom-save")?.addEventListener("click", addCustomTitle);
 }
 
+/* ---------- auth (local + cloud) ---------- */
+
+function readAuthStore() {
+  try {
+    const raw = localStorage.getItem(AUTH_KEY);
+    if (!raw) return { users: [] };
+    const data = JSON.parse(raw);
+    return { users: Array.isArray(data.users) ? data.users : [] };
+  } catch {
+    return { users: [] };
+  }
+}
+
+function writeAuthStore(store) {
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ users: store.users || [] }));
+}
+
+function readSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return data?.userId || null;
+  } catch {
+    return null;
+  }
+}
+
+function writeSession(userId) {
+  if (!userId) localStorage.removeItem(SESSION_KEY);
+  else localStorage.setItem(SESSION_KEY, JSON.stringify({ userId }));
+}
+
+function currentUser() {
+  const id = state.currentUserId || readSession();
+  if (!id) return null;
+  const fromStore = readAuthStore().users.find((u) => u.id === id);
+  if (fromStore) return fromStore;
+  const cloud = readCloudUser();
+  if (cloud?.id === id) return cloud;
+  return null;
+}
+
+function bytesToHex(buf) {
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function fallbackHash(password, salt) {
+  let h = 2166136261;
+  const s = `${salt}:${password}`;
+  for (let i = 0; i < s.length; i += 1) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const parts = [];
+  for (let i = 0; i < 8; i += 1) {
+    let n = (h ^ (i * 2654435761)) >>> 0;
+    parts.push(n.toString(16).padStart(8, "0"));
+  }
+  return parts.join("");
+}
+
+async function hashPassword(password, salt) {
+  try {
+    if (globalThis.crypto?.subtle?.digest) {
+      const enc = new TextEncoder();
+      const data = enc.encode(`${salt}:${password}`);
+      const digest = await crypto.subtle.digest("SHA-256", data);
+      return bytesToHex(digest);
+    }
+  } catch {
+    /* fall through */
+  }
+  return fallbackHash(password, salt);
+}
+
+function normalizeHandle(h) {
+  return String(h || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "")
+    .slice(0, 24);
+}
+
+function normalizeEmail(e) {
+  return String(e || "").trim().toLowerCase();
+}
+
+function cacheCloudUserLocally(cloudUser, passwordHash, salt) {
+  const store = readAuthStore();
+  const existing = store.users.find(
+    (u) => u.id === cloudUser.id || u.handle === cloudUser.handle
+  );
+  if (existing) {
+    existing.name = cloudUser.name;
+    existing.handle = cloudUser.handle;
+    existing.id = cloudUser.id;
+    if (passwordHash) existing.passwordHash = passwordHash;
+    if (salt) existing.salt = salt;
+    existing.cloud = true;
+  } else {
+    store.users.push({
+      id: cloudUser.id,
+      name: cloudUser.name,
+      handle: cloudUser.handle,
+      email: cloudUser.email || "",
+      passwordHash: passwordHash || "",
+      salt: salt || "",
+      createdAt: cloudUser.createdAt || new Date().toISOString(),
+      cloud: true,
+    });
+  }
+  writeAuthStore(store);
+  writeSession(cloudUser.id);
+  state.currentUserId = cloudUser.id;
+  writeCloudUser(cloudUser);
+}
+
+async function createAccount({ name, handle, email, password }) {
+  const h = normalizeHandle(handle);
+  const em = normalizeEmail(email);
+  if (h.length < 3) throw new Error("Username must be at least 3 characters.");
+  if (!em.includes("@")) throw new Error("Enter a valid email.");
+  if (String(password || "").length < 6) {
+    throw new Error("Password must be at least 6 characters.");
+  }
+
+  try {
+    const cloud = await cloudFetch("/api/auth", {
+      method: "POST",
+      body: { action: "register", name, handle: h, email: em, password },
+    });
+    if (cloud.token) writeCloudToken(cloud.token);
+    const salt = uid();
+    const passwordHash = await hashPassword(password, salt);
+    cacheCloudUserLocally({ ...cloud.user, email: em }, passwordHash, salt);
+    try {
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy && !localStorage.getItem(userStorageKey(cloud.user.id))) {
+        localStorage.setItem(userStorageKey(cloud.user.id), legacy);
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+    if (cloud.library) applyCloudLibrary(cloud.library);
+    return cloud.user;
+  } catch (cloudErr) {
+    console.warn("Cloud register failed, using local account", cloudErr);
+    const store = readAuthStore();
+    if (store.users.some((u) => u.handle === h)) {
+      throw new Error("That username is taken.");
+    }
+    if (store.users.some((u) => u.email === em)) {
+      throw new Error("That email is already registered.");
+    }
+    if (cloudErr.status === 409) throw cloudErr;
+
+    const salt = uid();
+    const passwordHash = await hashPassword(password, salt);
+    const user = {
+      id: uid(),
+      name: String(name || h).trim().slice(0, 40) || h,
+      handle: h,
+      email: em,
+      passwordHash,
+      salt,
+      createdAt: new Date().toISOString(),
+      localOnly: true,
+    };
+    store.users.push(user);
+    writeAuthStore(store);
+    writeSession(user.id);
+    state.currentUserId = user.id;
+    writeCloudToken("");
+    writeCloudUser(null);
+    try {
+      const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacy && !localStorage.getItem(userStorageKey(user.id))) {
+        localStorage.setItem(userStorageKey(user.id), legacy);
+        localStorage.removeItem(LEGACY_STORAGE_KEY);
+      }
+    } catch {
+      /* ignore */
+    }
+    return user;
+  }
+}
+
+async function loginAccount({ handleOrEmail, password }) {
+  const key = String(handleOrEmail || "").trim().toLowerCase();
+  if (!key) throw new Error("Enter your username or email.");
+  if (!password) throw new Error("Enter your password.");
+
+  try {
+    const cloud = await cloudFetch("/api/auth", {
+      method: "POST",
+      body: { action: "login", handleOrEmail: key, password },
+    });
+    if (cloud.token) writeCloudToken(cloud.token);
+    const salt = uid();
+    const passwordHash = await hashPassword(password, salt);
+    cacheCloudUserLocally(cloud.user, passwordHash, salt);
+    mergeCloudLibraryOnLogin(cloud.library);
+    return cloud.user;
+  } catch (cloudErr) {
+    console.warn("Cloud login failed, trying local", cloudErr);
+    const store = readAuthStore();
+    if (!store.users.length) {
+      throw new Error(
+        cloudErr.message ||
+          "No account found. Create an account — it will work on any phone."
+      );
+    }
+    const user = store.users.find(
+      (u) => u.handle === normalizeHandle(key) || u.email === normalizeEmail(key)
+    );
+    if (!user) {
+      throw new Error(
+        cloudErr.message ||
+          "No account found with that username or email. Create account if this is a new phone."
+      );
+    }
+    if (user.isGuest) throw new Error("Guest has no password — use Continue as guest.");
+    const passwordHash = await hashPassword(password, user.salt);
+    if (passwordHash !== user.passwordHash) throw new Error("Wrong password.");
+    writeSession(user.id);
+    state.currentUserId = user.id;
+    return user;
+  }
+}
+
+function logoutAccount() {
+  writeSession(null);
+  state.currentUserId = null;
+  writeCloudToken("");
+  writeCloudUser(null);
+  const shell = document.getElementById("app-shell");
+  const gate = document.getElementById("auth-gate");
+  if (shell) {
+    shell.hidden = true;
+    shell.setAttribute("hidden", "");
+  }
+  if (gate) {
+    gate.hidden = false;
+    gate.removeAttribute("hidden");
+  }
+  document.body.classList.add("auth-locked");
+  setAuthMode(readAuthStore().users.filter((u) => !u.isGuest).length ? "login" : "signup");
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById("auth-error");
+  if (!el) {
+    if (msg) window.alert(msg);
+    return;
+  }
+  if (!msg) {
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.removeAttribute("hidden");
+  el.textContent = msg;
+  try {
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  } catch {
+    /* ignore */
+  }
+}
+
+function enterAsGuest() {
+  const guestId = "guest-local";
+  const store = readAuthStore();
+  if (!store.users.some((u) => u.id === guestId)) {
+    store.users.push({
+      id: guestId,
+      name: "Guest",
+      handle: "guest",
+      email: "guest@local",
+      passwordHash: "",
+      salt: "",
+      createdAt: new Date().toISOString(),
+      isGuest: true,
+    });
+    writeAuthStore(store);
+  }
+  writeCloudToken("");
+  writeCloudUser(null);
+  writeSession(guestId);
+  state.currentUserId = guestId;
+  try {
+    const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacy && !localStorage.getItem(userStorageKey(guestId))) {
+      localStorage.setItem(userStorageKey(guestId), legacy);
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    }
+  } catch {
+    /* ignore */
+  }
+  enterApp();
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode === "login" ? "login" : "signup";
+  const signup = state.authMode === "signup";
+  const title = document.getElementById("auth-title");
+  const sub = document.getElementById("auth-sub");
+  const submit = document.getElementById("auth-submit");
+  const switchText = document.getElementById("auth-switch-text");
+  const toggle = document.getElementById("auth-toggle");
+  const nameField = document.getElementById("auth-name-field");
+  const emailField = document.getElementById("auth-email-field");
+  const pass = document.getElementById("auth-password");
+  const handleInput = document.getElementById("auth-handle");
+  const handleLabel = document.getElementById("auth-handle-label");
+  if (title) title.textContent = signup ? "Create account" : "Log in";
+  if (sub) {
+    sub.textContent = signup
+      ? "Save your library and open it on any phone with the same login."
+      : "Log in with the same username/password on any phone to get your library.";
+  }
+  if (submit) {
+    submit.textContent = signup ? "Create account" : "Log in";
+    submit.disabled = false;
+  }
+  if (switchText) {
+    switchText.textContent = signup ? "Already have an account?" : "New here?";
+  }
+  if (toggle) toggle.textContent = signup ? "Log in" : "Create account";
+  if (nameField) {
+    nameField.hidden = !signup;
+    if (signup) nameField.removeAttribute("hidden");
+    else nameField.setAttribute("hidden", "");
+  }
+  if (emailField) {
+    emailField.hidden = !signup;
+    if (signup) emailField.removeAttribute("hidden");
+    else emailField.setAttribute("hidden", "");
+  }
+  if (pass) {
+    pass.autocomplete = signup ? "new-password" : "current-password";
+    pass.placeholder = signup ? "At least 6 characters" : "Password";
+  }
+  if (handleInput) {
+    handleInput.placeholder = signup ? "your_handle" : "username or email";
+  }
+  if (handleLabel) handleLabel.textContent = signup ? "Username" : "Username or email";
+  showAuthError("");
+}
+
+async function submitAuth() {
+  showAuthError("");
+  const submit = document.getElementById("auth-submit");
+  const name = document.getElementById("auth-name")?.value || "";
+  const handle = document.getElementById("auth-handle")?.value || "";
+  const email = document.getElementById("auth-email")?.value || "";
+  const password = document.getElementById("auth-password")?.value || "";
+  if (submit) submit.disabled = true;
+  try {
+    if (state.authMode === "signup") {
+      await createAccount({ name, handle, email, password });
+    } else {
+      const key = handle.trim() || email.trim();
+      await loginAccount({ handleOrEmail: key, password });
+    }
+    enterApp();
+  } catch (err) {
+    console.error("Sequel auth error:", err);
+    showAuthError(err?.message || "Could not continue.");
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+function setupAuth() {
+  const hasUsers = readAuthStore().users.some((u) => !u.isGuest);
+  setAuthMode(hasUsers ? "login" : "signup");
+
+  document.getElementById("auth-toggle")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    setAuthMode(state.authMode === "signup" ? "login" : "signup");
+  });
+
+  document.getElementById("auth-guest")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    try {
+      enterAsGuest();
+    } catch (err) {
+      showAuthError(err?.message || "Could not start guest session.");
+    }
+  });
+
+  document.getElementById("auth-submit")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    submitAuth();
+  });
+
+  document.getElementById("auth-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    submitAuth();
+  });
+
+  document.getElementById("logout-btn")?.addEventListener("click", () => {
+    if (window.confirm("Log out of Sequel on this device?")) logoutAccount();
+  });
+}
+
+function enterApp() {
+  try {
+    const user = currentUser();
+    if (!user) {
+      logoutAccount();
+      return;
+    }
+    state.currentUserId = user.id;
+    const gate = document.getElementById("auth-gate");
+    const shell = document.getElementById("app-shell");
+    if (gate) {
+      gate.hidden = true;
+      gate.setAttribute("hidden", "");
+    }
+    if (shell) {
+      shell.hidden = false;
+      shell.removeAttribute("hidden");
+    }
+    document.body.classList.remove("auth-locked");
+    const handleEl = document.getElementById("user-chip-handle");
+    if (handleEl) {
+      handleEl.textContent = user.isGuest ? "guest" : `@${user.handle}`;
+    }
+    showPanel("home");
+    updateStat();
+    // Refresh library from cloud in background (non-guest)
+    if (readCloudToken() && !user.isGuest) {
+      pullLibraryFromCloud()
+        .then(() => {
+          updateStat();
+          if (state.panel === "library") renderLibrary();
+          if (state.panel === "foryou") renderRecs();
+        })
+        .catch(() => {});
+    }
+  } catch (err) {
+    console.error("enterApp failed", err);
+    showAuthError(err?.message || "Could not open the app after login.");
+  }
+}
+
 function init() {
   loadPosterCache();
   loadRemoteCache();
+  setupAuth();
   setupNav();
   setupFilters();
   setupCards();
   setupRateDialog();
   setupAddDialog();
-  showPanel("home");
-  updateStat();
+
+  const sessionId = readSession();
+  if (sessionId && (readAuthStore().users.some((u) => u.id === sessionId) || readCloudUser()?.id === sessionId)) {
+    state.currentUserId = sessionId;
+    enterApp();
+  } else {
+    document.body.classList.add("auth-locked");
+    const shell = document.getElementById("app-shell");
+    const gate = document.getElementById("auth-gate");
+    if (shell) {
+      shell.hidden = true;
+      shell.setAttribute("hidden", "");
+    }
+    if (gate) {
+      gate.hidden = false;
+      gate.removeAttribute("hidden");
+    }
+  }
 }
 
 init();

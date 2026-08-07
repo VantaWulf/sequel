@@ -5,143 +5,220 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f1419" />
     <title>Sequel · what to watch & read next</title>
-    <link rel="stylesheet" href="styles.css?v=2" />
+    <link rel="stylesheet" href="styles.css?v=3" />
   </head>
-  <body>
+  <body class="auth-locked">
     <a class="skip-link" href="#main">Skip to content</a>
 
-    <header class="top">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div>
-          <p class="brand-name">Sequel</p>
-          <p class="brand-tag">rate · discover · queue</p>
-        </div>
-      </div>
-      <p class="top-stat" id="lib-stat">0 rated</p>
-    </header>
-
-    <main id="main">
-      <!-- HOME: new releases -->
-      <section class="panel" data-panel="home" aria-label="Home">
-        <div class="panel-head">
+    <!-- AUTH GATE -->
+    <div id="auth-gate" class="auth-gate">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <h1>Home</h1>
-            <p class="sub">Fresh movies, shows, and books — tap any cover to rate or save.</p>
+            <p class="brand-name">Sequel</p>
+            <p class="brand-tag">rate · discover · queue</p>
           </div>
         </div>
-
-        <section class="rail-section" aria-labelledby="new-movies-h">
-          <div class="rail-head">
-            <h2 id="new-movies-h">New movies</h2>
-            <button type="button" class="linkish" data-jump-browse="movie">See all</button>
-          </div>
-          <div class="poster-rail" id="rail-movies"></div>
-        </section>
-
-        <section class="rail-section" aria-labelledby="new-tv-h">
-          <div class="rail-head">
-            <h2 id="new-tv-h">New TV shows</h2>
-            <button type="button" class="linkish" data-jump-browse="tv">See all</button>
-          </div>
-          <div class="poster-rail" id="rail-tv"></div>
-        </section>
-
-        <section class="rail-section" aria-labelledby="new-books-h">
-          <div class="rail-head">
-            <h2 id="new-books-h">New books</h2>
-            <button type="button" class="linkish" data-jump-browse="book">See all</button>
-          </div>
-          <div class="poster-rail" id="rail-books"></div>
-        </section>
-
-        <section class="rail-section" aria-labelledby="trending-h">
-          <div class="rail-head">
-            <h2 id="trending-h">Worth a look</h2>
-          </div>
-          <div class="poster-rail" id="rail-trending"></div>
-        </section>
-      </section>
-
-      <!-- FOR YOU -->
-      <section class="panel" data-panel="foryou" aria-label="For you" hidden>
-        <div class="panel-head">
-          <div>
-            <h1>For you</h1>
-            <p class="sub">Suggestions from what you loved (and skipped what you hated).</p>
-          </div>
-        </div>
-        <div class="type-filters" id="rec-type-filters">
-          <button type="button" class="chip active" data-rec-type="all">All</button>
-          <button type="button" class="chip" data-rec-type="movie">Movies</button>
-          <button type="button" class="chip" data-rec-type="tv">TV</button>
-          <button type="button" class="chip" data-rec-type="book">Books</button>
-        </div>
-        <div id="recs-list" class="card-list"></div>
-        <p class="empty" id="recs-empty">
-          Rate a few titles in <strong>Library</strong> (4–5★ works best) so Sequel can suggest what to watch or read next.
+        <h1 id="auth-title">Create account</h1>
+        <p class="sub" id="auth-sub">
+          Save your library and open it on any phone with the same login.
         </p>
-      </section>
 
-      <!-- LIBRARY -->
-      <section class="panel" data-panel="library" aria-label="Library" hidden>
-        <div class="panel-head">
+        <form id="auth-form" class="auth-form" novalidate>
+          <label class="field" id="auth-name-field">
+            <span>Display name</span>
+            <input type="text" id="auth-name" autocomplete="name" maxlength="40" placeholder="Your name" />
+          </label>
+          <label class="field" id="auth-handle-field">
+            <span id="auth-handle-label">Username</span>
+            <input
+              type="text"
+              id="auth-handle"
+              autocomplete="username"
+              maxlength="64"
+              placeholder="your_handle"
+            />
+          </label>
+          <label class="field" id="auth-email-field">
+            <span>Email</span>
+            <input type="email" id="auth-email" autocomplete="email" placeholder="you@email.com" />
+          </label>
+          <label class="field" id="auth-password-field">
+            <span>Password</span>
+            <input
+              type="password"
+              id="auth-password"
+              autocomplete="new-password"
+              placeholder="At least 6 characters"
+            />
+          </label>
+          <p class="auth-error" id="auth-error" hidden></p>
+          <button type="button" class="btn primary wide" id="auth-submit">Create account</button>
+        </form>
+
+        <p class="auth-switch">
+          <span id="auth-switch-text">Already have an account?</span>
+          <button type="button" class="linkish" id="auth-toggle">Log in</button>
+        </p>
+        <p class="auth-guest-wrap">
+          <button type="button" class="btn ghost wide" id="auth-guest">Continue as guest</button>
+        </p>
+        <p class="hint auth-local-note">
+          Cloud accounts sync your library across devices. Guest keeps data on
+          <strong>this browser only</strong>.
+        </p>
+      </div>
+    </div>
+
+    <div id="app-shell" hidden>
+      <header class="top">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
           <div>
-            <h1>Library</h1>
-            <p class="sub">Everything you’ve watched or read, with your rating.</p>
-          </div>
-          <button type="button" class="btn primary sm" id="open-add-btn">Add</button>
-        </div>
-        <div class="type-filters" id="lib-type-filters">
-          <button type="button" class="chip active" data-lib-type="all">All</button>
-          <button type="button" class="chip" data-lib-type="movie">Movies</button>
-          <button type="button" class="chip" data-lib-type="tv">TV</button>
-          <button type="button" class="chip" data-lib-type="book">Books</button>
-        </div>
-        <div id="library-list" class="card-list"></div>
-        <p class="empty" id="library-empty">Nothing here yet. Tap <strong>Add</strong> to log a movie, show, or book.</p>
-      </section>
-
-      <!-- BROWSE -->
-      <section class="panel" data-panel="browse" aria-label="Browse" hidden>
-        <div class="panel-head">
-          <div>
-            <h1>Browse</h1>
-            <p class="sub">Search the catalog or filter by type.</p>
+            <p class="brand-name">Sequel</p>
+            <p class="brand-tag">rate · discover · queue</p>
           </div>
         </div>
-        <label class="field">
-          <span class="sr-only">Search</span>
-          <input type="search" id="browse-search" placeholder="Search titles, authors, genres…" autocomplete="off" />
-        </label>
-        <div class="type-filters" id="browse-type-filters">
-          <button type="button" class="chip active" data-browse-type="all">All</button>
-          <button type="button" class="chip" data-browse-type="movie">Movies</button>
-          <button type="button" class="chip" data-browse-type="tv">TV</button>
-          <button type="button" class="chip" data-browse-type="book">Books</button>
+        <div class="top-right">
+          <p class="top-stat" id="lib-stat">0 rated</p>
+          <div class="user-chip" id="user-chip" title="Account">
+            <span id="user-chip-handle">@you</span>
+            <button type="button" class="linkish" id="logout-btn">Log out</button>
+          </div>
         </div>
-        <div id="browse-list" class="card-list"></div>
-      </section>
-    </main>
+      </header>
 
-    <nav class="tabbar" aria-label="Main">
-      <button type="button" class="tab active" data-nav="home">
-        <span class="tab-ico" aria-hidden="true">⌂</span>
-        Home
-      </button>
-      <button type="button" class="tab" data-nav="foryou">
-        <span class="tab-ico" aria-hidden="true">✦</span>
-        For you
-      </button>
-      <button type="button" class="tab" data-nav="library">
-        <span class="tab-ico" aria-hidden="true">▣</span>
-        Library
-      </button>
-      <button type="button" class="tab" data-nav="browse">
-        <span class="tab-ico" aria-hidden="true">⌕</span>
-        Browse
-      </button>
-    </nav>
+      <main id="main">
+        <!-- HOME: new releases -->
+        <section class="panel" data-panel="home" aria-label="Home">
+          <div class="panel-head">
+            <div>
+              <h1>Home</h1>
+              <p class="sub">Fresh movies, shows, and books — tap any cover to rate or save.</p>
+            </div>
+          </div>
+
+          <section class="rail-section" aria-labelledby="new-movies-h">
+            <div class="rail-head">
+              <h2 id="new-movies-h">New movies</h2>
+              <button type="button" class="linkish" data-jump-browse="movie">See all</button>
+            </div>
+            <div class="poster-rail" id="rail-movies"></div>
+          </section>
+
+          <section class="rail-section" aria-labelledby="new-tv-h">
+            <div class="rail-head">
+              <h2 id="new-tv-h">New TV shows</h2>
+              <button type="button" class="linkish" data-jump-browse="tv">See all</button>
+            </div>
+            <div class="poster-rail" id="rail-tv"></div>
+          </section>
+
+          <section class="rail-section" aria-labelledby="new-books-h">
+            <div class="rail-head">
+              <h2 id="new-books-h">New books</h2>
+              <button type="button" class="linkish" data-jump-browse="book">See all</button>
+            </div>
+            <div class="poster-rail" id="rail-books"></div>
+          </section>
+
+          <section class="rail-section" aria-labelledby="trending-h">
+            <div class="rail-head">
+              <h2 id="trending-h">Worth a look</h2>
+            </div>
+            <div class="poster-rail" id="rail-trending"></div>
+          </section>
+        </section>
+
+        <!-- FOR YOU -->
+        <section class="panel" data-panel="foryou" aria-label="For you" hidden>
+          <div class="panel-head">
+            <div>
+              <h1>For you</h1>
+              <p class="sub">Suggestions from what you loved (and skipped what you hated).</p>
+            </div>
+          </div>
+          <div class="type-filters" id="rec-type-filters">
+            <button type="button" class="chip active" data-rec-type="all">All</button>
+            <button type="button" class="chip" data-rec-type="movie">Movies</button>
+            <button type="button" class="chip" data-rec-type="tv">TV</button>
+            <button type="button" class="chip" data-rec-type="book">Books</button>
+          </div>
+          <div id="recs-list" class="card-list"></div>
+          <p class="empty" id="recs-empty">
+            Rate a few titles in <strong>Library</strong> (4–5★ works best) so Sequel can suggest what to
+            watch or read next.
+          </p>
+        </section>
+
+        <!-- LIBRARY -->
+        <section class="panel" data-panel="library" aria-label="Library" hidden>
+          <div class="panel-head">
+            <div>
+              <h1>Library</h1>
+              <p class="sub">Everything you’ve watched or read, with your rating.</p>
+            </div>
+            <button type="button" class="btn primary sm" id="open-add-btn">Add</button>
+          </div>
+          <div class="type-filters" id="lib-type-filters">
+            <button type="button" class="chip active" data-lib-type="all">All</button>
+            <button type="button" class="chip" data-lib-type="movie">Movies</button>
+            <button type="button" class="chip" data-lib-type="tv">TV</button>
+            <button type="button" class="chip" data-lib-type="book">Books</button>
+          </div>
+          <div id="library-list" class="card-list"></div>
+          <p class="empty" id="library-empty">
+            Nothing here yet. Tap <strong>Add</strong> to log a movie, show, or book.
+          </p>
+        </section>
+
+        <!-- BROWSE -->
+        <section class="panel" data-panel="browse" aria-label="Browse" hidden>
+          <div class="panel-head">
+            <div>
+              <h1>Browse</h1>
+              <p class="sub">Search the catalog or filter by type.</p>
+            </div>
+          </div>
+          <label class="field">
+            <span class="sr-only">Search</span>
+            <input
+              type="search"
+              id="browse-search"
+              placeholder="Search titles, authors, genres…"
+              autocomplete="off"
+            />
+          </label>
+          <div class="type-filters" id="browse-type-filters">
+            <button type="button" class="chip active" data-browse-type="all">All</button>
+            <button type="button" class="chip" data-browse-type="movie">Movies</button>
+            <button type="button" class="chip" data-browse-type="tv">TV</button>
+            <button type="button" class="chip" data-browse-type="book">Books</button>
+          </div>
+          <div id="browse-list" class="card-list"></div>
+        </section>
+      </main>
+
+      <nav class="tabbar" aria-label="Main">
+        <button type="button" class="tab active" data-nav="home">
+          <span class="tab-ico" aria-hidden="true">⌂</span>
+          Home
+        </button>
+        <button type="button" class="tab" data-nav="foryou">
+          <span class="tab-ico" aria-hidden="true">✦</span>
+          For you
+        </button>
+        <button type="button" class="tab" data-nav="library">
+          <span class="tab-ico" aria-hidden="true">▣</span>
+          Library
+        </button>
+        <button type="button" class="tab" data-nav="browse">
+          <span class="tab-ico" aria-hidden="true">⌕</span>
+          Browse
+        </button>
+      </nav>
+    </div>
 
     <!-- ADD / RATE DIALOG -->
     <dialog id="rate-dialog" class="dialog">
@@ -240,7 +317,7 @@
       </form>
     </dialog>
 
-    <script src="data.js?v=8"></script>
-    <script src="app.js?v=8"></script>
+    <script src="data.js?v=9"></script>
+    <script src="app.js?v=9"></script>
   </body>
 </html>

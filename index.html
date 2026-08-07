@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f1419" />
     <title>Sequel · what to watch & read next</title>
-    <link rel="stylesheet" href="styles.css?v=3" />
+    <link rel="stylesheet" href="styles.css?v=4" />
   </head>
   <body class="auth-locked">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -82,8 +82,10 @@
         </div>
         <div class="top-right">
           <p class="top-stat" id="lib-stat">0 rated</p>
-          <div class="user-chip" id="user-chip" title="Account">
-            <span id="user-chip-handle">@you</span>
+          <div class="user-chip" id="user-chip" title="Open profile">
+            <button type="button" class="user-chip-btn" id="open-profile-btn">
+              <span id="user-chip-handle">@you</span>
+            </button>
             <button type="button" class="linkish" id="logout-btn">Log out</button>
           </div>
         </div>
@@ -198,6 +200,60 @@
           </div>
           <div id="browse-list" class="card-list"></div>
         </section>
+
+        <!-- PROFILE -->
+        <section class="panel" data-panel="profile" aria-label="Profile" hidden>
+          <div class="panel-head">
+            <div>
+              <h1>Profile</h1>
+              <p class="sub" id="profile-sub">Your account and taste preferences.</p>
+            </div>
+            <button type="button" class="btn ghost sm" id="profile-back-btn">Back</button>
+          </div>
+
+          <div class="profile-card" id="profile-card">
+            <div class="profile-avatar" aria-hidden="true" id="profile-avatar">S</div>
+            <div>
+              <p class="profile-name" id="profile-name">You</p>
+              <p class="profile-handle" id="profile-handle">@you</p>
+            </div>
+          </div>
+
+          <div class="profile-stats" id="profile-stats">
+            <div class="profile-stat">
+              <strong id="profile-stat-rated">0</strong>
+              <span>rated</span>
+            </div>
+            <div class="profile-stat">
+              <strong id="profile-stat-logged">0</strong>
+              <span>logged</span>
+            </div>
+            <div class="profile-stat">
+              <strong id="profile-stat-age">—</strong>
+              <span>age</span>
+            </div>
+          </div>
+
+          <section class="profile-section">
+            <h2 class="profile-h">Preferences</h2>
+            <p class="sub" id="profile-prefs-summary">Not set yet — these shape For you.</p>
+            <dl class="profile-dl" id="profile-prefs-dl">
+              <div>
+                <dt>Born</dt>
+                <dd id="profile-birth">—</dd>
+              </div>
+              <div>
+                <dt>Max content rating</dt>
+                <dd id="profile-max-rating">—</dd>
+              </div>
+              <div>
+                <dt>Streaming</dt>
+                <dd id="profile-streaming">—</dd>
+              </div>
+            </dl>
+            <button type="button" class="btn primary sm" id="edit-prefs-btn">Edit preferences</button>
+          </section>
+        </section>
       </main>
 
       <nav class="tabbar" aria-label="Main">
@@ -219,6 +275,66 @@
         </button>
       </nav>
     </div>
+
+    <!-- ONBOARDING / PREFERENCES -->
+    <dialog id="onboard-dialog" class="dialog dialog-lg">
+      <form method="dialog" class="dialog-body" id="onboard-form">
+        <button type="button" class="dialog-x" id="onboard-close" aria-label="Close">×</button>
+        <p class="dialog-kicker">About you</p>
+        <h2 id="onboard-title">Help Sequel suggest better</h2>
+        <p class="sub" id="onboard-sub">
+          A few quick questions so For you matches what you’re allowed to watch and what you can stream.
+        </p>
+
+        <label class="field">
+          <span>When were you born? (year)</span>
+          <input
+            type="number"
+            id="onboard-birth-year"
+            min="1920"
+            max="2020"
+            placeholder="e.g. 2010"
+            inputmode="numeric"
+          />
+        </label>
+
+        <fieldset class="field">
+          <legend>What’s the highest content rating you can watch?</legend>
+          <p class="hint">Movies &amp; TV only — books stay open.</p>
+          <div class="status-row" id="onboard-rating-row">
+            <button type="button" class="status-btn" data-max-rating="G">G</button>
+            <button type="button" class="status-btn" data-max-rating="PG">PG</button>
+            <button type="button" class="status-btn active" data-max-rating="PG-13">PG-13</button>
+            <button type="button" class="status-btn" data-max-rating="R">R</button>
+            <button type="button" class="status-btn" data-max-rating="any">Any</button>
+          </div>
+        </fieldset>
+
+        <fieldset class="field">
+          <legend>Which streaming services do you use?</legend>
+          <p class="hint">Pick all that apply — helps tailor suggestions.</p>
+          <div class="chip-grid" id="onboard-streaming">
+            <button type="button" class="chip" data-stream="netflix">Netflix</button>
+            <button type="button" class="chip" data-stream="disney">Disney+</button>
+            <button type="button" class="chip" data-stream="hulu">Hulu</button>
+            <button type="button" class="chip" data-stream="max">Max</button>
+            <button type="button" class="chip" data-stream="prime">Prime Video</button>
+            <button type="button" class="chip" data-stream="apple">Apple TV+</button>
+            <button type="button" class="chip" data-stream="peacock">Peacock</button>
+            <button type="button" class="chip" data-stream="paramount">Paramount+</button>
+            <button type="button" class="chip" data-stream="crunchyroll">Crunchyroll</button>
+            <button type="button" class="chip" data-stream="youtube">YouTube</button>
+            <button type="button" class="chip" data-stream="none">None / other</button>
+          </div>
+        </fieldset>
+
+        <p class="auth-error" id="onboard-error" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" class="btn ghost" id="onboard-skip">Skip for now</button>
+          <button type="submit" class="btn primary" id="onboard-save">Save &amp; continue</button>
+        </div>
+      </form>
+    </dialog>
 
     <!-- ADD / RATE DIALOG -->
     <dialog id="rate-dialog" class="dialog">
@@ -317,7 +433,7 @@
       </form>
     </dialog>
 
-    <script src="data.js?v=9"></script>
-    <script src="app.js?v=9"></script>
+    <script src="data.js?v=10"></script>
+    <script src="app.js?v=10"></script>
   </body>
 </html>

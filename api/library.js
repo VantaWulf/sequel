@@ -1,6 +1,6 @@
 /**
  * GET  /api/library?token=
- * POST /api/library  { token, library: { items: [...] } }
+ * POST /api/library  { token, library: { items: [...], profile?: {...} } }
  */
 const {
   json,
@@ -37,17 +37,18 @@ module.exports = async function handler(req, res) {
       const user = await getUserById(userId);
       if (!user) return json(res, 401, { error: "Account not found." });
 
-      const items = Array.isArray(body.library?.items)
-        ? body.library.items
-        : Array.isArray(body.items)
-          ? body.items
-          : null;
+      const lib = body.library || body;
+      const items = Array.isArray(lib.items) ? lib.items : null;
       if (!items) return json(res, 400, { error: "Expected library.items array." });
       if (items.length > 5000) {
         return json(res, 413, { error: "Library too large." });
       }
 
-      await saveLibrary(userId, { items });
+      const existing = await getLibrary(userId);
+      const profile =
+        lib.profile !== undefined ? lib.profile : existing.profile || null;
+
+      await saveLibrary(userId, { items, profile });
       return json(res, 200, { ok: true, saved: items.length });
     }
 

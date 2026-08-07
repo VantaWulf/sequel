@@ -243,13 +243,21 @@ async function saveUser(user) {
 
 async function getLibrary(userId) {
   const data = await storageReadJson(`libraries/${userId}.json`);
-  if (!data || !Array.isArray(data.items)) return { items: [], version: 1 };
-  return data;
+  if (!data || !Array.isArray(data.items)) {
+    return { items: [], version: 1, profile: null };
+  }
+  return {
+    items: data.items,
+    version: data.version || 1,
+    profile: data.profile || null,
+    updatedAt: data.updatedAt || null,
+  };
 }
 
 async function saveLibrary(userId, library) {
   await storageWriteJson(`libraries/${userId}.json`, {
     items: Array.isArray(library.items) ? library.items : [],
+    profile: library.profile || null,
     version: 1,
     updatedAt: new Date().toISOString(),
   });

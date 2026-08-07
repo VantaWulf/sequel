@@ -33,6 +33,51 @@ const state = {
   authMode: "signup", // signup | login
   currentUserId: null,
   cloudSyncTimer: null,
+  /** Onboarding draft while editing preferences */
+  onboardDraft: {
+    birthYear: null,
+    maxRating: "PG-13",
+    streaming: [],
+  },
+};
+
+/** US movie-style ladder used for filtering. */
+const CONTENT_RATING_LEVEL = {
+  G: 0,
+  PG: 1,
+  "PG-13": 2,
+  R: 3,
+  "NC-17": 4,
+  any: 99,
+};
+
+const STREAMING_LABELS = {
+  netflix: "Netflix",
+  disney: "Disney+",
+  hulu: "Hulu",
+  max: "Max",
+  prime: "Prime Video",
+  apple: "Apple TV+",
+  peacock: "Peacock",
+  paramount: "Paramount+",
+  crunchyroll: "Crunchyroll",
+  youtube: "YouTube",
+  none: "None / other",
+};
+
+/** Soft genre/vibe boosts by streaming service (catalog has no platform list). */
+const STREAMING_TASTE = {
+  netflix: { genres: ["crime", "thriller", "drama", "scifi", "dark-comedy"], vibe: ["dark", "tense"] },
+  disney: { genres: ["animation", "family", "superhero", "adventure", "fantasy"], vibe: ["fun", "spectacular"] },
+  hulu: { genres: ["comedy", "drama", "horror", "teen"], vibe: ["quirky", "sharp"] },
+  max: { genres: ["drama", "fantasy", "crime", "comedy", "epic"], vibe: ["prestige", "epic", "sharp"] },
+  prime: { genres: ["action", "scifi", "drama", "comedy"], vibe: ["blockbuster", "fun"] },
+  apple: { genres: ["drama", "scifi", "thriller", "comedy"], vibe: ["prestige", "cerebral"] },
+  peacock: { genres: ["comedy", "sports", "drama"], vibe: ["fun"] },
+  paramount: { genres: ["scifi", "action", "adventure", "crime"], vibe: ["epic", "fun"] },
+  crunchyroll: { genres: ["animation", "fantasy", "action", "scifi"], vibe: ["stylish", "fun"] },
+  youtube: { genres: ["comedy", "documentary"], vibe: ["fun"] },
+  none: { genres: [], vibe: [] },
 };
 
 function meId() {
@@ -562,8 +607,33 @@ async function hydratePosters(root = document) {
 
 /* ---------- storage (per-user) ---------- */
 
+function defaultProfile() {
+  return {
+    birthYear: null,
+    maxRating: "PG-13",
+    streaming: [],
+    onboardingDone: false,
+  };
+}
+
 function defaultLibrary() {
-  return { items: [], version: 1 };
+  return { items: [], version: 1, profile: defaultProfile() };
+}
+
+function normalizeProfile(p) {
+  const base = defaultProfile();
+  if (!p || typeof p !== "object") return base;
+  const year = p.birthYear != null ? Number(p.birthYear) : null;
+  const maxRating = CONTENT_RATING_LEVEL[p.maxRating] != null ? p.maxRating : "PG-13";
+  const streaming = Array.isArray(p.streaming)
+    ? p.streaming.map(String).filter((s) => STREAMING_LABELS[s])
+    : [];
+  return {
+    birthYear: year && year >= 1920 && year <= 2020 ? year : null,
+    maxRating,
+    streaming,
+    onboardingDone: !!p.onboardingDone,
+  };
 }
 
 function load() {
@@ -582,6 +652,7 @@ function load() {
     if (!raw) return defaultLibrary();
     const data = JSON.parse(raw);
     if (!Array.isArray(data.items)) data.items = [];
+    data.profile = normalizeProfile(data.profile);
     return data;
   } catch {
     return defaultLibrary();
@@ -591,8 +662,26 @@ function load() {
 function save(data) {
   const id = meId();
   if (!id) return;
+  if (!data.profile) data.profile = defaultProfile();
+  else data.profile = normalizeProfile(data.profile);
   localStorage.setItem(userStorageKey(id), JSON.stringify(data));
   scheduleCloudLibraryPush();
+}
+
+function getProfile() {
+  return normalizeProfile(load().profile);
+}
+
+function userAge(profile = getProfile()) {
+  if (!profile.birthYear) return null;
+  const now = new Date().getFullYear();
+  return Math.max(0, now - profile.birthYear);
+}
+
+function profileNeedsOnboarding(profile = getProfile()) {
+  if (profile.onboardingDone) return false;
+  // Need at least birth year + max rating chosen once
+  return !profile.birthYear;
 }
 
 function update(fn) {
@@ -616,7 +705,10 @@ async function pushLibraryToCloud() {
   const data = load();
   await cloudFetch("/api/library", {
     method: "POST",
-    body: { token, library: { items: data.items } },
+    body: {
+      token,
+      library: { items: data.items, profile: data.profile || defaultProfile() },
+    },
   });
 }
 
@@ -630,13 +722,30 @@ async function pullLibraryFromCloud() {
     if (res.library && Array.isArray(res.library.items)) {
       const local = load();
       const cloudItems = res.library.items;
+      const cloudProfile = res.library.profile
+        ? normalizeProfile(res.library.profile)
+        : null;
       // Prefer cloud if it has more (or equal) items, else keep local and push
       if (cloudItems.length >= local.items.length) {
-        save({ items: cloudItems, version: 1 });
-        // save() schedules another push — cancel and skip for pull
+        save({
+          items: cloudItems,
+          version: 1,
+          profile: cloudProfile || local.profile || defaultProfile(),
+        });
         clearTimeout(state.cloudSyncTimer);
       } else if (local.items.length > cloudItems.length) {
+        // still merge profile from cloud if local never finished onboarding
+        if (cloudProfile?.onboardingDone && !local.profile?.onboardingDone) {
+          update((d) => {
+            d.profile = cloudProfile;
+          });
+        }
         await pushLibraryToCloud();
+      } else if (cloudProfile?.onboardingDone) {
+        update((d) => {
+          d.profile = cloudProfile;
+        });
+        clearTimeout(state.cloudSyncTimer);
       }
       return res.library;
     }
@@ -649,23 +758,125 @@ async function pullLibraryFromCloud() {
 function applyCloudLibrary(library) {
   if (!library || !Array.isArray(library.items)) return;
   const key = userStorageKey();
-  localStorage.setItem(key, JSON.stringify({ items: library.items, version: 1 }));
+  const local = load();
+  const profile = library.profile
+    ? normalizeProfile(library.profile)
+    : local.profile || defaultProfile();
+  localStorage.setItem(
+    key,
+    JSON.stringify({ items: library.items, version: 1, profile })
+  );
 }
 
 /** After login: prefer richer library; upload local if cloud is empty. */
 function mergeCloudLibraryOnLogin(library) {
   const cloudItems = Array.isArray(library?.items) ? library.items : [];
   const local = load();
+  const cloudProfile = library?.profile ? normalizeProfile(library.profile) : null;
   if (cloudItems.length === 0 && local.items.length > 0) {
+    if (cloudProfile?.onboardingDone && !local.profile?.onboardingDone) {
+      update((d) => {
+        d.profile = cloudProfile;
+      });
+    }
     scheduleCloudLibraryPush();
     return;
   }
   if (cloudItems.length >= local.items.length) {
-    applyCloudLibrary({ items: cloudItems });
+    applyCloudLibrary({
+      items: cloudItems,
+      profile: cloudProfile || local.profile,
+    });
     return;
   }
   // local has more entries for this account — keep and push
+  if (cloudProfile?.onboardingDone && !local.profile?.onboardingDone) {
+    update((d) => {
+      d.profile = cloudProfile;
+    });
+  }
   scheduleCloudLibraryPush();
+}
+
+/**
+ * Infer approximate content rating when catalog has no official label.
+ * Used only for filtering — not legal ratings.
+ */
+function inferContentRating(item) {
+  if (!item) return "PG-13";
+  if (item.contentRating && CONTENT_RATING_LEVEL[item.contentRating] != null) {
+    return item.contentRating;
+  }
+  if (item.type === "book") return "G"; // books not filtered by movie ratings
+
+  const genres = (item.genres || []).map((g) => String(g).toLowerCase());
+  const text = `${item.why || ""} ${item.description || ""} ${item.title || ""}`.toLowerCase();
+  const vibe = (item.vibe || []).map((v) => String(v).toLowerCase());
+
+  if (/\br[- ]?rated\b|\bnc-17\b|\bexplicit\b/.test(text)) return "R";
+  if (genres.includes("horror") || genres.includes("erotic")) return "R";
+  if (vibe.includes("sexy") || vibe.includes("brutal") || vibe.includes("raw")) {
+    if (genres.includes("family") || genres.includes("animation")) return "PG-13";
+    return "R";
+  }
+  if (
+    genres.includes("family") ||
+    (genres.includes("animation") && !genres.includes("horror") && !genres.includes("dark"))
+  ) {
+    return genres.includes("teen") ? "PG" : "G";
+  }
+  if (genres.includes("ya") || genres.includes("teen") || genres.includes("kids")) {
+    return "PG-13";
+  }
+  if (genres.includes("crime") || genres.includes("thriller") || genres.includes("war")) {
+    return "R";
+  }
+  // Default: mainstream cinema / TV
+  return "PG-13";
+}
+
+function allowedByMaxRating(item, maxRating) {
+  if (!maxRating || maxRating === "any") return true;
+  if (item?.type === "book") return true;
+  const cap = CONTENT_RATING_LEVEL[maxRating] ?? CONTENT_RATING_LEVEL["PG-13"];
+  const level = CONTENT_RATING_LEVEL[inferContentRating(item)] ?? 2;
+  return level <= cap;
+}
+
+function streamingBoostFor(item, streaming = []) {
+  if (!streaming?.length || streaming.includes("none")) return 0;
+  let boost = 0;
+  const genres = new Set((item.genres || []).map(String));
+  const vibes = new Set((item.vibe || []).map(String));
+  streaming.forEach((svc) => {
+    const taste = STREAMING_TASTE[svc];
+    if (!taste) return;
+    taste.genres.forEach((g) => {
+      if (genres.has(g)) boost += 0.35;
+    });
+    taste.vibe.forEach((v) => {
+      if (vibes.has(v)) boost += 0.25;
+    });
+  });
+  return Math.min(boost, 2.5);
+}
+
+function ageBoostFor(item, age) {
+  if (age == null) return 0;
+  const genres = (item.genres || []).map(String);
+  if (age < 13) {
+    if (genres.some((g) => ["family", "animation", "kids", "ya", "teen"].includes(g))) return 0.8;
+    if (genres.some((g) => ["horror", "crime", "erotic"].includes(g))) return -2;
+  } else if (age < 17) {
+    if (genres.some((g) => ["ya", "teen", "superhero", "adventure", "scifi"].includes(g))) {
+      return 0.45;
+    }
+  } else if (age >= 30) {
+    if (genres.some((g) => ["drama", "biography", "history", "literary"].includes(g))) {
+      return 0.25;
+    }
+  }
+  return 0;
 }
 
 function libraryMap() {
@@ -685,12 +896,28 @@ function ratedCount() {
  * Penalize genres from low ratings. Boost same type as loved items.
  */
 function recommend(typeFilter = "all", limit = 12) {
-  const lib = load().items;
+  const data = load();
+  const lib = data.items;
+  const profile = normalizeProfile(data.profile);
+  const age = userAge(profile);
   const owned = new Set(lib.map((x) => x.id));
 
   const genreScore = new Map();
   const vibeScore = new Map();
   const typeBoost = { movie: 0, tv: 0, book: 0 };
+
+  // Seed taste from streaming services even before ratings
+  (profile.streaming || []).forEach((svc) => {
+    const taste = STREAMING_TASTE[svc];
+    if (!taste) return;
+    taste.genres.forEach((g) => genreScore.set(g, (genreScore.get(g) || 0) + 0.55));
+    taste.vibe.forEach((v) => vibeScore.set(v, (vibeScore.get(v) || 0) + 0.4));
+  });
+  if (age != null && age < 13) {
+    ["family", "animation", "adventure", "ya"].forEach((g) => {
+      genreScore.set(g, (genreScore.get(g) || 0) + 0.7);
+    });
+  }
 
   lib.forEach((entry) => {
     const item = resolveItem(entry.id);
@@ -716,7 +943,11 @@ function recommend(typeFilter = "all", limit = 12) {
     });
   });
 
-  if (![...genreScore.values()].some((v) => v > 0) && ![...vibeScore.values()].some((v) => v > 0)) {
+  const hasTaste =
+    [...genreScore.values()].some((v) => v > 0) ||
+    [...vibeScore.values()].some((v) => v > 0);
+
+  if (!hasTaste) {
     return [];
   }
 
@@ -726,7 +957,9 @@ function recommend(typeFilter = "all", limit = 12) {
     .slice(0, 8)
     .map(([g]) => g);
 
-  let candidates = catalog().filter((c) => !owned.has(c.id));
+  let candidates = catalog().filter(
+    (c) => !owned.has(c.id) && allowedByMaxRating(c, profile.maxRating)
+  );
   if (typeFilter !== "all") candidates = candidates.filter((c) => c.type === typeFilter);
 
   const scored = candidates
@@ -748,8 +981,10 @@ function recommend(typeFilter = "all", limit = 12) {
         }
       });
       score += (typeBoost[c.type] || 0) * 0.15;
+      score += streamingBoostFor(c, profile.streaming);
+      score += ageBoostFor(c, age);
       // slight popularity bias for seed variety
-      score += (c.year && c.year >= 2015 ? 0.15 : 0);
+      score += c.year && c.year >= 2015 ? 0.15 : 0;
       return { item: c, score, matched: matched.slice(0, 4) };
     })
     .filter((x) => x.score > 0.6)
@@ -803,12 +1038,72 @@ function showPanel(name) {
     p.hidden = p.dataset.panel !== name;
   });
   document.querySelectorAll(".tab").forEach((t) => {
-    t.classList.toggle("active", t.dataset.nav === name);
+    // profile is not a tab — clear tab highlight when on profile
+    t.classList.toggle("active", name !== "profile" && t.dataset.nav === name);
   });
   if (name === "home") renderHome();
   if (name === "foryou") renderRecs();
   if (name === "library") renderLibrary();
   if (name === "browse") renderBrowse();
+  if (name === "profile") renderProfile();
+}
+
+function renderProfile() {
+  const user = currentUser();
+  const profile = getProfile();
+  const age = userAge(profile);
+  const lib = load();
+
+  const nameEl = document.getElementById("profile-name");
+  const handleEl = document.getElementById("profile-handle");
+  const avatarEl = document.getElementById("profile-avatar");
+  const subEl = document.getElementById("profile-sub");
+
+  if (nameEl) nameEl.textContent = user?.name || user?.handle || "You";
+  if (handleEl) {
+    handleEl.textContent = user?.isGuest ? "guest" : `@${user?.handle || "you"}`;
+  }
+  if (avatarEl) {
+    const seed = (user?.name || user?.handle || "S").trim();
+    avatarEl.textContent = (seed[0] || "S").toUpperCase();
+  }
+  if (subEl) {
+    subEl.textContent = user?.isGuest
+      ? "Guest profile — preferences stay on this browser."
+      : "Your account and taste preferences.";
+  }
+
+  const ratedEl = document.getElementById("profile-stat-rated");
+  const loggedEl = document.getElementById("profile-stat-logged");
+  const ageEl = document.getElementById("profile-stat-age");
+  if (ratedEl) ratedEl.textContent = String(lib.items.filter((x) => x.rating > 0).length);
+  if (loggedEl) loggedEl.textContent = String(lib.items.length);
+  if (ageEl) ageEl.textContent = age != null ? String(age) : "—";
+
+  const birthEl = document.getElementById("profile-birth");
+  const maxEl = document.getElementById("profile-max-rating");
+  const streamEl = document.getElementById("profile-streaming");
+  const summaryEl = document.getElementById("profile-prefs-summary");
+
+  if (birthEl) {
+    birthEl.textContent = profile.birthYear
+      ? `${profile.birthYear}${age != null ? ` (age ${age})` : ""}`
+      : "Not set";
+  }
+  if (maxEl) {
+    maxEl.textContent =
+      profile.maxRating === "any" ? "Any" : profile.maxRating || "Not set";
+  }
+  if (streamEl) {
+    streamEl.textContent = profile.streaming?.length
+      ? profile.streaming.map((s) => STREAMING_LABELS[s] || s).join(", ")
+      : "Not set";
+  }
+  if (summaryEl) {
+    summaryEl.textContent = profile.onboardingDone
+      ? "Used by For you to filter content and bias by services you use."
+      : "Not set yet — these shape For you.";
+  }
 }
 
 function newReleases(type, limit = 12) {
@@ -1820,6 +2115,165 @@ function setupAuth() {
   document.getElementById("logout-btn")?.addEventListener("click", () => {
     if (window.confirm("Log out of Sequel on this device?")) logoutAccount();
   });
+
+  document.getElementById("open-profile-btn")?.addEventListener("click", () => {
+    showPanel("profile");
+  });
+  document.getElementById("profile-back-btn")?.addEventListener("click", () => {
+    showPanel("home");
+  });
+  document.getElementById("edit-prefs-btn")?.addEventListener("click", () => {
+    openOnboarding({ edit: true });
+  });
+}
+
+/* ---------- onboarding / preferences ---------- */
+
+function showOnboardError(msg) {
+  const el = document.getElementById("onboard-error");
+  if (!el) return;
+  if (!msg) {
+    el.hidden = true;
+    el.setAttribute("hidden", "");
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.removeAttribute("hidden");
+  el.textContent = msg;
+}
+
+function paintOnboardDraft() {
+  const d = state.onboardDraft;
+  const yearInput = document.getElementById("onboard-birth-year");
+  if (yearInput) yearInput.value = d.birthYear || "";
+
+  document.querySelectorAll("#onboard-rating-row [data-max-rating]").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.maxRating === d.maxRating);
+  });
+  document.querySelectorAll("#onboard-streaming [data-stream]").forEach((btn) => {
+    btn.classList.toggle("active", d.streaming.includes(btn.dataset.stream));
+  });
+}
+
+function openOnboarding({ edit = false } = {}) {
+  const profile = getProfile();
+  state.onboardDraft = {
+    birthYear: profile.birthYear,
+    maxRating: profile.maxRating || "PG-13",
+    streaming: [...(profile.streaming || [])],
+  };
+  const title = document.getElementById("onboard-title");
+  const sub = document.getElementById("onboard-sub");
+  const skip = document.getElementById("onboard-skip");
+  if (title) {
+    title.textContent = edit ? "Edit preferences" : "Help Sequel suggest better";
+  }
+  if (sub) {
+    sub.textContent = edit
+      ? "Update birth year, content rating, and streaming services."
+      : "A few quick questions so For you matches what you’re allowed to watch and what you can stream.";
+  }
+  if (skip) skip.hidden = edit;
+  showOnboardError("");
+  paintOnboardDraft();
+  const dialog = document.getElementById("onboard-dialog");
+  if (dialog && typeof dialog.showModal === "function") dialog.showModal();
+}
+
+function saveOnboarding({ skip = false } = {}) {
+  showOnboardError("");
+  if (skip) {
+    update((d) => {
+      d.profile = normalizeProfile({
+        ...(d.profile || defaultProfile()),
+        onboardingDone: true,
+      });
+    });
+    document.getElementById("onboard-dialog")?.close();
+    if (state.panel === "profile") renderProfile();
+    renderRecs();
+    return;
+  }
+
+  const yearRaw = document.getElementById("onboard-birth-year")?.value;
+  const year = yearRaw ? Number(yearRaw) : null;
+  const now = new Date().getFullYear();
+  if (!year || year < 1920 || year > now - 3) {
+    showOnboardError("Enter a valid birth year (e.g. 2010).");
+    return;
+  }
+  if (!state.onboardDraft.maxRating) {
+    showOnboardError("Pick a max content rating.");
+    return;
+  }
+
+  update((d) => {
+    d.profile = normalizeProfile({
+      birthYear: year,
+      maxRating: state.onboardDraft.maxRating,
+      streaming: state.onboardDraft.streaming,
+      onboardingDone: true,
+    });
+  });
+
+  document.getElementById("onboard-dialog")?.close();
+  if (state.panel === "profile") renderProfile();
+  renderRecs();
+  updateStat();
+}
+
+function setupOnboarding() {
+  document.querySelectorAll("#onboard-rating-row [data-max-rating]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.onboardDraft.maxRating = btn.dataset.maxRating;
+      paintOnboardDraft();
+    });
+  });
+
+  document.querySelectorAll("#onboard-streaming [data-stream]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const id = btn.dataset.stream;
+      let list = [...state.onboardDraft.streaming];
+      if (id === "none") {
+        list = list.includes("none") ? [] : ["none"];
+      } else {
+        list = list.filter((s) => s !== "none");
+        if (list.includes(id)) list = list.filter((s) => s !== id);
+        else list.push(id);
+      }
+      state.onboardDraft.streaming = list;
+      paintOnboardDraft();
+    });
+  });
+
+  document.getElementById("onboard-form")?.addEventListener("submit", (e) => {
+    e.preventDefault();
+    saveOnboarding({ skip: false });
+  });
+  document.getElementById("onboard-save")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    saveOnboarding({ skip: false });
+  });
+  document.getElementById("onboard-skip")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    saveOnboarding({ skip: true });
+  });
+  document.getElementById("onboard-close")?.addEventListener("click", () => {
+    // closing without save — if never done, mark skip so we don't loop forever
+    const p = getProfile();
+    if (!p.onboardingDone) saveOnboarding({ skip: true });
+    else document.getElementById("onboard-dialog")?.close();
+  });
+}
+
+function maybePromptOnboarding() {
+  const user = currentUser();
+  if (!user || user.isGuest) return;
+  if (profileNeedsOnboarding()) {
+    // slight delay so shell paints first
+    setTimeout(() => openOnboarding({ edit: false }), 350);
+  }
 }
 
 function enterApp() {
@@ -1854,8 +2308,14 @@ function enterApp() {
           updateStat();
           if (state.panel === "library") renderLibrary();
           if (state.panel === "foryou") renderRecs();
+          if (state.panel === "profile") renderProfile();
+          maybePromptOnboarding();
         })
-        .catch(() => {});
+        .catch(() => {
+          maybePromptOnboarding();
+        });
+    } else {
+      maybePromptOnboarding();
     }
   } catch (err) {
     console.error("enterApp failed", err);
@@ -1872,9 +2332,14 @@ function init() {
   setupCards();
   setupRateDialog();
   setupAddDialog();
+  setupOnboarding();
 
   const sessionId = readSession();
-  if (sessionId && (readAuthStore().users.some((u) => u.id === sessionId) || readCloudUser()?.id === sessionId)) {
+  if (
+    sessionId &&
+    (readAuthStore().users.some((u) => u.id === sessionId) ||
+      readCloudUser()?.id === sessionId)
+  ) {
     state.currentUserId = sessionId;
     enterApp();
   } else {

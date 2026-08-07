@@ -2,7 +2,7 @@
   "name": "sequel",
   "private": true,
   "scripts": {
-    "build": "mkdir -p public && rm -rf public/* && cp index.html styles.css app.js data.js public/ && echo 'built public/'"
+    "build": "rm -rf public && mkdir -p public/assets && cp index.html styles.css app.js data.js public/ && cp -R assets/. public/assets/ && echo 'built public/'"
   },
   "engines": {
     "node": ">=18"

@@ -10,8 +10,9 @@ const AUTH_KEY = "sequel.auth.v1";
 const SESSION_KEY = "sequel.session.v1";
 const CLOUD_TOKEN_KEY = "sequel.cloud.token.v1";
 const CLOUD_USER_KEY = "sequel.cloud.user.v1";
-const POSTER_CACHE_KEY = "sequel.posters.v4";
+const POSTER_CACHE_KEY = "sequel.posters.v5";
 const REMOTE_CACHE_KEY = "sequel.remote.v1";
+const POSTER_FAIL_KEY = "sequel.posters.fail.v1";
 /** Production API host when opened from a non-Vercel static host. */
 const DEFAULT_SEQUEL_API_BASE = "https://sequel-vantawulfs-projects.vercel.app";
 
@@ -27,6 +28,7 @@ const state = {
   },
   customType: "movie",
   posterCache: {},
+  posterFail: {},
   remoteById: {},
   imdbBusy: false,
   imdbStatus: "",
@@ -337,14 +339,19 @@ function loadPosterCache() {
   } catch {
     state.posterCache = {};
   }
+  try {
+    state.posterFail = JSON.parse(localStorage.getItem(POSTER_FAIL_KEY) || "{}") || {};
+  } catch {
+    state.posterFail = {};
+  }
 }
 
 function savePosterCache() {
   try {
     const keys = Object.keys(state.posterCache);
     // cap cache size
-    if (keys.length > 200) {
-      keys.slice(0, keys.length - 200).forEach((k) => delete state.posterCache[k]);
+    if (keys.length > 300) {
+      keys.slice(0, keys.length - 300).forEach((k) => delete state.posterCache[k]);
     }
     localStorage.setItem(POSTER_CACHE_KEY, JSON.stringify(state.posterCache));
   } catch {
@@ -352,53 +359,144 @@ function savePosterCache() {
   }
 }
 
-function posterPlaceholder(item, size = "md") {
-  const tone =
-    item.type === "movie" ? "ph-movie" : item.type === "tv" ? "ph-tv" : "ph-book";
-  return `<div class="poster-ph ${tone} ${size}" role="img" aria-label="No poster available"><span class="poster-none-label">No poster available</span></div>`;
+function savePosterFail() {
+  try {
+    localStorage.setItem(POSTER_FAIL_KEY, JSON.stringify(state.posterFail || {}));
+  } catch {
+    /* ignore */
+  }
+}
+
+function posterInitial(item) {
+  const t = String(item?.title || "?").trim();
+  return (t[0] || "?").toUpperCase();
+}
+
+function posterTone(type) {
+  return type === "movie" ? "ph-movie" : type === "tv" ? "ph-tv" : "ph-book";
+}
+
+/** Soft skeleton while art loads — looks intentional, not broken. */
+function posterSkeletonHtml(item, size = "md") {
+  const tone = posterTone(item.type);
+  return `<div class="poster-skel ${tone} ${size}" aria-hidden="true">
+    <span class="skel-shimmer"></span>
+    <span class="skel-letter">${escapeHtml(posterInitial(item))}</span>
+  </div>`;
+}
+
+function posterFinalPlaceholder(item, size = "md") {
+  const tone = posterTone(item.type);
+  return `<div class="poster-ph ${tone} ${size}" role="img" aria-label="Cover unavailable">
+    <span class="skel-letter static">${escapeHtml(posterInitial(item))}</span>
+    <span class="poster-none-label">Cover soon</span>
+  </div>`;
+}
+
+function posterAttrs(item) {
+  return `data-poster-id="${escapeHtml(item.id)}" data-poster-type="${escapeHtml(
+    item.type || "movie"
+  )}" data-poster-title="${escapeHtml(item.title || "")}" data-poster-query="${escapeHtml(
+    item.posterQuery || item.title || ""
+  )}" data-poster-isbn="${escapeHtml(item.isbn || "")}" data-poster-author="${escapeHtml(
+    item.author || ""
+  )}" data-poster-wiki="${escapeHtml(item.wiki || "")}" data-poster-year="${escapeHtml(
+    item.year != null ? String(item.year) : ""
+  )}"`;
 }
 
 function posterHtml(item, size = "md") {
   const cached = state.posterCache[item.id];
   let src = cached || item.poster || "";
   if (src) src = String(src).split("?")[0];
+  // Known-bad URL in fail map — show soft placeholder, still allow hydrate retry later
+  if (src && state.posterFail[item.id] === src) src = "";
+
   if (src) {
-    return `<img class="poster ${size}" src="${escapeHtml(src)}" alt="" loading="lazy" data-poster-id="${escapeHtml(
-      item.id
-    )}" onerror="this.replaceWith(window.__sequelPosterFallback && window.__sequelPosterFallback('${escapeHtml(
-      item.id
-    )}','${escapeHtml(item.type)}','${escapeHtml(size)}'))" />`;
+    return `<div class="poster-slot ${size}" ${posterAttrs(item)}>
+      ${posterSkeletonHtml(item, size)}
+      <img class="poster ${size} poster-fade" src="${escapeHtml(src)}" alt="" loading="lazy"
+        data-poster-id="${escapeHtml(item.id)}"
+        onload="this.classList.add('is-loaded');this.previousElementSibling&&this.previousElementSibling.remove();"
+        onerror="window.__sequelPosterImgError&&window.__sequelPosterImgError(this,'${escapeHtml(
+          item.id
+        )}','${escapeHtml(item.type || "movie")}','${escapeHtml(size)}')" />
+    </div>`;
   }
-  return `<div class="poster ${size} poster-loading" data-poster-id="${escapeHtml(
-    item.id
-  )}" data-poster-type="${escapeHtml(item.type)}" data-poster-title="${escapeHtml(
-    item.title || ""
-  )}" data-poster-query="${escapeHtml(item.posterQuery || item.title || "")}" data-poster-isbn="${escapeHtml(
-    item.isbn || ""
-  )}" data-poster-author="${escapeHtml(item.author || "")}" data-poster-wiki="${escapeHtml(
-    item.wiki || ""
-  )}">${posterPlaceholder(item, size)}</div>`;
+
+  return `<div class="poster-slot ${size} poster-loading" ${posterAttrs(item)}>
+    ${posterSkeletonHtml(item, size)}
+  </div>`;
 }
 
 window.__sequelPosterFallback = function (id, type, size) {
-  const tone = type === "movie" ? "ph-movie" : type === "tv" ? "ph-tv" : "ph-book";
-  const el = document.createElement("div");
-  el.className = `poster-ph ${tone} ${size || "md"}`;
-  el.setAttribute("role", "img");
-  el.setAttribute("aria-label", "No poster available");
-  el.innerHTML = `<span class="poster-none-label">No poster available</span>`;
-  // remember failure so we don't thrash
-  try {
-    if (window.__sequelMarkPosterFail) window.__sequelMarkPosterFail(id);
-  } catch {
-    /* ignore */
-  }
-  return el;
+  const item = catalogById(id) || resolveItem(id) || { id, type, title: "?" };
+  const wrap = document.createElement("div");
+  wrap.className = `poster-slot ${size || "md"}`;
+  wrap.innerHTML = posterFinalPlaceholder(item, size || "md");
+  return wrap;
 };
 
-window.__sequelMarkPosterFail = function (id) {
-  // leave cache empty so "no poster" shows; don't store broken urls
+window.__sequelMarkPosterFail = function (id, url) {
+  if (!id) return;
+  state.posterFail[id] = url || true;
+  if (state.posterCache[id] && (!url || state.posterCache[id] === url)) {
+    delete state.posterCache[id];
+    savePosterCache();
+  }
+  savePosterFail();
 };
+
+/** Broken img → try live resolve once, then soft placeholder. */
+window.__sequelPosterImgError = function (img, id, type, size) {
+  const bad = img.getAttribute("src") || "";
+  window.__sequelMarkPosterFail(id, bad);
+  const slot = img.closest(".poster-slot") || img.parentNode;
+  const item =
+    catalogById(id) ||
+    resolveItem(id) || {
+      id,
+      type,
+      title: img.getAttribute("data-poster-title") || "",
+    };
+  resolvePosterUrl(item, { force: true })
+    .then((url) => {
+      if (url && url !== bad) {
+        img.onerror = function () {
+          if (slot) slot.replaceWith(window.__sequelPosterFallback(id, type, size));
+        };
+        img.src = url;
+        return;
+      }
+      if (slot) slot.replaceWith(window.__sequelPosterFallback(id, type, size));
+    })
+    .catch(() => {
+      if (slot) slot.replaceWith(window.__sequelPosterFallback(id, type, size));
+    });
+};
+
+function probeImage(url, timeoutMs = 8000) {
+  return new Promise((resolve) => {
+    if (!url) return resolve(false);
+    const img = new Image();
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      resolve(ok);
+    };
+    const t = setTimeout(() => finish(false), timeoutMs);
+    img.onload = () => {
+      clearTimeout(t);
+      finish(true);
+    };
+    img.onerror = () => {
+      clearTimeout(t);
+      finish(false);
+    };
+    img.src = url;
+  });
+}
 
 function queryVariants(item) {
   const base = (item.posterQuery || item.title || "").trim();
@@ -502,70 +600,130 @@ function wikiTitleCandidates(item) {
   return [...new Set(list.filter(Boolean))];
 }
 
-async function resolvePosterUrl(item) {
-  if (state.posterCache[item.id]) return state.posterCache[item.id];
-  if (item.poster) {
-    state.posterCache[item.id] = item.poster;
-    savePosterCache();
-    return item.poster;
+async function resolvePosterUrl(item, { force = false } = {}) {
+  if (!item?.id) return "";
+  if (!force && state.posterCache[item.id]) {
+    const cached = state.posterCache[item.id];
+    if (state.posterFail[item.id] !== cached) return cached;
   }
 
-  const remember = (url) => {
+  const remember = async (url) => {
     if (!url) return "";
+    if (state.posterFail[item.id] === url) return "";
+    const ok = await probeImage(url);
+    if (!ok) {
+      state.posterFail[item.id] = url;
+      savePosterFail();
+      return "";
+    }
     state.posterCache[item.id] = url;
+    if (state.posterFail[item.id]) {
+      delete state.posterFail[item.id];
+      savePosterFail();
+    }
     savePosterCache();
     return url;
   };
 
   try {
-    // 1) Wikipedia thumbnails (very reliable for popular titles)
+    // 0) Catalog-provided URL (probe — some wiki links 404)
+    if (item.poster && (force || state.posterFail[item.id] !== item.poster)) {
+      const ok = await remember(item.poster);
+      if (ok) return ok;
+    }
+
+    // 1) Wikipedia thumbnails
     const wiki = await fetchWikipediaThumb(wikiTitleCandidates(item));
-    if (wiki) return remember(wiki);
+    {
+      const ok = await remember(wiki);
+      if (ok) return ok;
+    }
 
     // 2) Type-specific free APIs with multiple query spellings
     const variants = queryVariants(item);
     if (item.type === "book") {
       const cover = await fetchOpenLibraryCover(item);
-      if (cover) return remember(cover);
+      {
+        const ok = await remember(cover);
+        if (ok) return ok;
+      }
       for (const q of variants) {
         const art = await fetchItunesArtwork(q, "ebook");
-        if (art) return remember(art);
+        const ok = await remember(art);
+        if (ok) return ok;
       }
     } else if (item.type === "tv") {
       for (const q of variants) {
-        const art =
-          (await fetchItunesArtwork(q, "tvSeason")) ||
-          (await fetchItunesArtwork(q, "tvShow"));
-        if (art) return remember(art);
-      }
-      // last resort: movie entity sometimes has series art
-      for (const q of variants) {
-        const art = await fetchItunesArtwork(q, "movie");
-        if (art) return remember(art);
+        for (const ent of ["tvSeason", "tvShow", "movie"]) {
+          const art = await fetchItunesArtwork(q, ent);
+          const ok = await remember(art);
+          if (ok) return ok;
+        }
       }
     } else {
       for (const q of variants) {
         const art = await fetchItunesArtwork(q, "movie");
-        if (art) return remember(art);
+        const ok = await remember(art);
+        if (ok) return ok;
+      }
+      // TV art sometimes used for cinematic titles
+      for (const q of variants.slice(0, 2)) {
+        const art = await fetchItunesArtwork(q, "tvSeason");
+        const ok = await remember(art);
+        if (ok) return ok;
       }
     }
 
-    // 3) Wikipedia again with looser title
-    const loose = await fetchWikipediaThumb([item.title]);
-    if (loose) return remember(loose);
+    // 3) Wikipedia looser
+    const loose = await fetchWikipediaThumb([item.title, `${item.title} film`, `${item.title} series`]);
+    {
+      const ok = await remember(loose);
+      if (ok) return ok;
+    }
   } catch (err) {
     console.warn("poster fetch failed", item.id, err);
   }
   return "";
 }
 
+function slotSizeClass(el) {
+  const c = el.className || "";
+  if (c.includes("lg")) return "lg";
+  if (c.includes("sm")) return "sm";
+  return "md";
+}
+
 async function hydratePosters(root = document) {
-  const nodes = root.querySelectorAll("[data-poster-id]");
+  const nodes = root.querySelectorAll(".poster-slot.poster-loading");
+  const seen = new Set();
   const queue = [];
   nodes.forEach((el) => {
     const id = el.getAttribute("data-poster-id");
+    if (!id || seen.has(id + el.className)) return;
+    // Skip if already showing a loaded image
+    if (el.querySelector("img.is-loaded")) return;
+    // Skip pure final placeholders without loading flag
+    if (el.classList.contains("poster-done")) return;
+    seen.add(id + el.className);
+    const item =
+      catalogById(id) ||
+      resolveItem(id) || {
+        id,
+        type: el.getAttribute("data-poster-type") || "movie",
+        title: el.getAttribute("data-poster-title") || "",
+        posterQuery: el.getAttribute("data-poster-query") || "",
+        isbn: el.getAttribute("data-poster-isbn") || "",
+        author: el.getAttribute("data-poster-author") || "",
+        wiki: el.getAttribute("data-poster-wiki") || "",
+        year: el.getAttribute("data-poster-year") || null,
+      };
+    queue.push({ el, item, size: slotSizeClass(el) });
+  });
+
+  // Also catch bare loading divs that aren't slots (legacy)
+  root.querySelectorAll("[data-poster-id].poster-loading:not(.poster-slot)").forEach((el) => {
+    const id = el.getAttribute("data-poster-id");
     if (!id) return;
-    if (el.tagName === "IMG" && el.getAttribute("src")) return;
     const item =
       catalogById(id) ||
       resolveItem(id) || {
@@ -577,32 +735,46 @@ async function hydratePosters(root = document) {
         author: el.getAttribute("data-poster-author") || "",
         wiki: el.getAttribute("data-poster-wiki") || "",
       };
-    queue.push({ el, item });
+    queue.push({ el, item, size: slotSizeClass(el) });
   });
 
-  // modest concurrency
   let i = 0;
   async function worker() {
     while (i < queue.length) {
       const job = queue[i++];
+      if (!job.el.isConnected) continue;
       const url = await resolvePosterUrl(job.item);
-      if (!url) continue;
+      if (!job.el.isConnected) continue;
+      if (!url) {
+        job.el.classList.remove("poster-loading");
+        job.el.classList.add("poster-done");
+        job.el.innerHTML = posterFinalPlaceholder(job.item, job.size);
+        continue;
+      }
+      const size = job.size;
       const img = document.createElement("img");
-      img.className = job.el.className.replace("poster-loading", "").trim() + " poster";
-      if (!img.className.includes("poster")) img.className += " poster md";
-      img.src = url;
+      img.className = `poster ${size} poster-fade`;
       img.alt = "";
       img.loading = "lazy";
       img.dataset.posterId = job.item.id;
-      img.onerror = function () {
-        this.replaceWith(
-          window.__sequelPosterFallback(job.item.id, job.item.type, "lg")
-        );
+      img.onload = () => {
+        img.classList.add("is-loaded");
+        job.el.querySelector(".poster-skel")?.remove();
       };
-      if (job.el.parentNode) job.el.replaceWith(img);
+      img.onerror = () => {
+        window.__sequelPosterImgError(img, job.item.id, job.item.type, size);
+      };
+      img.src = url;
+      job.el.classList.remove("poster-loading");
+      // keep skeleton until load
+      if (!job.el.querySelector(".poster-skel")) {
+        job.el.insertAdjacentHTML("afterbegin", posterSkeletonHtml(job.item, size));
+      }
+      job.el.querySelectorAll("img").forEach((n) => n.remove());
+      job.el.appendChild(img);
     }
   }
-  await Promise.all([worker(), worker(), worker()]);
+  await Promise.all([worker(), worker(), worker(), worker()]);
 }
 
 /* ---------- storage (per-user) ---------- */
@@ -617,7 +789,7 @@ function defaultProfile() {
 }
 
 function defaultLibrary() {
-  return { items: [], version: 1, profile: defaultProfile() };
+  return { items: [], dismissed: [], version: 1, profile: defaultProfile() };
 }
 
 function normalizeProfile(p) {
@@ -652,6 +824,7 @@ function load() {
     if (!raw) return defaultLibrary();
     const data = JSON.parse(raw);
     if (!Array.isArray(data.items)) data.items = [];
+    if (!Array.isArray(data.dismissed)) data.dismissed = [];
     data.profile = normalizeProfile(data.profile);
     return data;
   } catch {
@@ -707,7 +880,11 @@ async function pushLibraryToCloud() {
     method: "POST",
     body: {
       token,
-      library: { items: data.items, profile: data.profile || defaultProfile() },
+      library: {
+        items: data.items,
+        dismissed: data.dismissed || [],
+        profile: data.profile || defaultProfile(),
+      },
     },
   });
 }
@@ -725,10 +902,17 @@ async function pullLibraryFromCloud() {
       const cloudProfile = res.library.profile
         ? normalizeProfile(res.library.profile)
         : null;
+      const cloudDismissed = Array.isArray(res.library.dismissed)
+        ? res.library.dismissed
+        : [];
+      const mergeDismissed = [
+        ...new Set([...(local.dismissed || []), ...cloudDismissed]),
+      ].slice(-500);
       // Prefer cloud if it has more (or equal) items, else keep local and push
       if (cloudItems.length >= local.items.length) {
         save({
           items: cloudItems,
+          dismissed: mergeDismissed,
           version: 1,
           profile: cloudProfile || local.profile || defaultProfile(),
         });
@@ -738,12 +922,18 @@ async function pullLibraryFromCloud() {
         if (cloudProfile?.onboardingDone && !local.profile?.onboardingDone) {
           update((d) => {
             d.profile = cloudProfile;
+            d.dismissed = mergeDismissed;
+          });
+        } else {
+          update((d) => {
+            d.dismissed = mergeDismissed;
           });
         }
         await pushLibraryToCloud();
       } else if (cloudProfile?.onboardingDone) {
         update((d) => {
           d.profile = cloudProfile;
+          d.dismissed = mergeDismissed;
         });
         clearTimeout(state.cloudSyncTimer);
       }
@@ -894,6 +1084,7 @@ function ratedCount() {
 /**
  * Score unwatched catalog items from genres/vibes of highly rated titles.
  * Penalize genres from low ratings. Boost same type as loved items.
+ * Returns { item, score, matched, becauseTitles, becauseText }.
  */
 function recommend(typeFilter = "all", limit = 12) {
   const data = load();
@@ -901,10 +1092,13 @@ function recommend(typeFilter = "all", limit = 12) {
   const profile = normalizeProfile(data.profile);
   const age = userAge(profile);
   const owned = new Set(lib.map((x) => x.id));
+  const dismissed = new Set(data.dismissed || []);
 
   const genreScore = new Map();
   const vibeScore = new Map();
   const typeBoost = { movie: 0, tv: 0, book: 0 };
+  /** Loved entries for “Because you liked…” */
+  const lovedItems = [];
 
   // Seed taste from streaming services even before ratings
   (profile.streaming || []).forEach((svc) => {
@@ -934,6 +1128,10 @@ function recommend(typeFilter = "all", limit = 12) {
     else if (rating === 1) w = -3;
     else return;
 
+    if (rating >= 4 && entry.status !== "dropped") {
+      lovedItems.push({ item, rating, entry });
+    }
+
     typeBoost[item.type] = (typeBoost[item.type] || 0) + w;
     (item.genres || []).forEach((g) => {
       genreScore.set(g, (genreScore.get(g) || 0) + w);
@@ -942,6 +1140,8 @@ function recommend(typeFilter = "all", limit = 12) {
       vibeScore.set(v, (vibeScore.get(v) || 0) + w);
     });
   });
+
+  lovedItems.sort((a, b) => b.rating - a.rating);
 
   const hasTaste =
     [...genreScore.values()].some((v) => v > 0) ||
@@ -957,8 +1157,54 @@ function recommend(typeFilter = "all", limit = 12) {
     .slice(0, 8)
     .map(([g]) => g);
 
+  function becauseFor(candidate) {
+    const cGenres = new Set(candidate.genres || []);
+    const cVibe = new Set(candidate.vibe || []);
+    const hits = [];
+    for (const { item: loved } of lovedItems) {
+      const overlap =
+        (loved.genres || []).some((g) => cGenres.has(g)) ||
+        (loved.vibe || []).some((v) => cVibe.has(v)) ||
+        loved.type === candidate.type;
+      if (overlap) hits.push(loved.title);
+      if (hits.length >= 2) break;
+    }
+    if (hits.length) {
+      return {
+        becauseTitles: hits,
+        becauseText:
+          hits.length === 1
+            ? `Because you liked ${hits[0]}`
+            : `Because you liked ${hits[0]} and ${hits[1]}`,
+      };
+    }
+    if (topGenres.length) {
+      const g = (candidate.genres || []).filter((x) => topGenres.includes(x)).slice(0, 2);
+      if (g.length) {
+        return {
+          becauseTitles: [],
+          becauseText: `Because you like ${g.join(" · ")}`,
+          matched: g,
+        };
+      }
+    }
+    if (profile.streaming?.length && !profile.streaming.includes("none")) {
+      const label = STREAMING_LABELS[profile.streaming[0]] || "your services";
+      return {
+        becauseTitles: [],
+        becauseText: `Fits what you stream (${label})`,
+        matched: [],
+      };
+    }
+    return { becauseTitles: [], becauseText: "Picked for your taste", matched: [] };
+  }
+
   let candidates = catalog().filter(
-    (c) => !owned.has(c.id) && allowedByMaxRating(c, profile.maxRating)
+    (c) =>
+      !owned.has(c.id) &&
+      !dismissed.has(c.id) &&
+      !c.comingSoon &&
+      allowedByMaxRating(c, profile.maxRating)
   );
   if (typeFilter !== "all") candidates = candidates.filter((c) => c.type === typeFilter);
 
@@ -985,7 +1231,14 @@ function recommend(typeFilter = "all", limit = 12) {
       score += ageBoostFor(c, age);
       // slight popularity bias for seed variety
       score += c.year && c.year >= 2015 ? 0.15 : 0;
-      return { item: c, score, matched: matched.slice(0, 4) };
+      const because = becauseFor(c);
+      return {
+        item: c,
+        score,
+        matched: matched.slice(0, 4),
+        becauseTitles: because.becauseTitles,
+        becauseText: because.becauseText,
+      };
     })
     .filter((x) => x.score > 0.6)
     .sort((a, b) => b.score - a.score);
@@ -1012,14 +1265,83 @@ function recommend(typeFilter = "all", limit = 12) {
     return candidates
       .filter((c) => (c.genres || []).some((g) => topGenres.includes(g)))
       .slice(0, limit)
-      .map((c) => ({
-        item: c,
-        score: 1,
-        matched: (c.genres || []).filter((g) => topGenres.includes(g)).slice(0, 3),
-      }));
+      .map((c) => {
+        const because = becauseFor(c);
+        return {
+          item: c,
+          score: 1,
+          matched: (c.genres || []).filter((g) => topGenres.includes(g)).slice(0, 3),
+          becauseTitles: because.becauseTitles,
+          becauseText: because.becauseText,
+        };
+      });
   }
 
   return out;
+}
+
+function dismissRecommendation(id) {
+  if (!id) return;
+  update((d) => {
+    if (!Array.isArray(d.dismissed)) d.dismissed = [];
+    if (!d.dismissed.includes(id)) d.dismissed.push(id);
+    // cap list
+    if (d.dismissed.length > 500) d.dismissed = d.dismissed.slice(-400);
+  });
+  renderRecs();
+}
+
+/** One-tap Want to watch/read — no dialog. */
+function quickWant(id) {
+  const item = resolveItem(id);
+  if (!item) return;
+  update((d) => {
+    const now = new Date().toISOString();
+    const existing = d.items.find((x) => x.id === id);
+    const payload = {
+      id,
+      imdbID: item.imdbID || (String(id).startsWith("imdb:") ? id.slice(5) : ""),
+      type: item.type,
+      title: item.title,
+      year: item.year || null,
+      author: item.author || "",
+      genres: item.genres || [],
+      vibe: item.vibe || [],
+      why: item.why || "",
+      description: item.description || "",
+      poster: item.poster || state.posterCache[id] || "",
+      status: "want",
+      rating: existing?.rating || 0,
+      note: existing?.note || "",
+      updatedAt: now,
+      createdAt: existing?.createdAt || now,
+      custom: !!item.custom,
+      source: item.source || (item.custom ? "custom" : "local"),
+    };
+    if (existing) Object.assign(existing, payload);
+    else d.items.push(payload);
+  });
+  showToast(`Saved “${item.title}” to Want`);
+  if (state.panel === "home") renderHome();
+  else if (state.panel === "browse") renderBrowse();
+  else if (state.panel === "foryou") renderRecs();
+  else if (state.panel === "library") renderLibrary();
+  updateStat();
+}
+
+function showToast(msg) {
+  let el = document.getElementById("sequel-toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "sequel-toast";
+    el.className = "sequel-toast";
+    el.setAttribute("role", "status");
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => el.classList.remove("show"), 2200);
 }
 
 /* ---------- render ---------- */
@@ -1170,6 +1492,8 @@ function posterTileHtml(item) {
   let badge = "";
   if (entry?.rating) {
     badge = `<span class="tile-badge stars">${starsText(entry.rating)}</span>`;
+  } else if (entry?.status === "want") {
+    badge = `<span class="tile-badge want">Want</span>`;
   } else if (item.comingSoon) {
     badge = `<span class="tile-badge soon">Soon</span>`;
   } else if (item.newRelease || (item.year && item.year >= new Date().getFullYear())) {
@@ -1178,13 +1502,29 @@ function posterTileHtml(item) {
   const meta = item.comingSoon
     ? [formatReleaseLabel(item) || item.year, typeLabel(item.type)].filter(Boolean).join(" · ")
     : [item.year, typeLabel(item.type)].filter(Boolean).join(" · ");
+  const wantLabel =
+    item.type === "book" ? "Want" : item.type === "tv" ? "Want" : "Want";
   return `
     <div class="poster-tile">
-      <button type="button" class="poster-tile-hit" data-open-rate="${escapeHtml(item.id)}">
-        <div class="poster-frame">
+      <div class="poster-frame">
+        <button type="button" class="poster-tile-hit" data-open-rate="${escapeHtml(
+          item.id
+        )}" aria-label="Rate ${escapeHtml(item.title)}">
           ${posterHtml(item, "lg")}
           ${badge}
+        </button>
+        <div class="tile-quick" role="group" aria-label="Quick actions">
+          <button type="button" class="tile-qbtn" data-quick-want="${escapeHtml(
+            item.id
+          )}" ${entry?.status === "want" ? "disabled" : ""}>${
+            entry?.status === "want" ? "Saved" : wantLabel
+          }</button>
+          <button type="button" class="tile-qbtn primary" data-open-rate="${escapeHtml(
+            item.id
+          )}">Rate</button>
         </div>
+      </div>
+      <button type="button" class="tile-title-btn" data-open-rate="${escapeHtml(item.id)}">
         <span class="tile-title">${escapeHtml(item.title)}</span>
         <span class="tile-meta">${escapeHtml(meta)}</span>
       </button>
@@ -1231,10 +1571,24 @@ function mediaCardHtml(item, { mode, entry, rec } = {}) {
   if (item.author) metaParts.push(item.author);
   if (entry?.status) metaParts.push(statusLabel(entry.status));
   const tags = [...(item.genres || []).slice(0, 3), ...(item.vibe || []).slice(0, 1)];
-  const why =
-    mode === "rec" && rec?.matched?.length
-      ? `Because you liked <strong>${escapeHtml(rec.matched.join(", "))}</strong>`
-      : escapeHtml(shortDescription(item));
+
+  let why = "";
+  if (mode === "rec" && rec) {
+    if (rec.becauseText) {
+      why = escapeHtml(rec.becauseText);
+      // bold liked titles inside the sentence
+      (rec.becauseTitles || []).forEach((t) => {
+        why = why.replace(
+          escapeHtml(t),
+          `<strong>${escapeHtml(t)}</strong>`
+        );
+      });
+    } else if (rec.matched?.length) {
+      why = `Because you like <strong>${escapeHtml(rec.matched.join(", "))}</strong>`;
+    }
+  } else {
+    why = escapeHtml(shortDescription(item));
+  }
 
   const score =
     mode === "rec" && rec
@@ -1243,15 +1597,28 @@ function mediaCardHtml(item, { mode, entry, rec } = {}) {
         ? `<span class="stars-inline" title="Your rating">${starsText(entry.rating)}</span>`
         : "";
 
-  const action =
-    mode === "library"
-      ? `<button type="button" class="btn soft sm" data-open-rate="${escapeHtml(item.id)}">Edit</button>`
-      : `<button type="button" class="btn soft sm" data-open-rate="${escapeHtml(item.id)}">${
-          entry ? "Update" : "Rate / save"
-        }</button>`;
+  let action = "";
+  if (mode === "library") {
+    action = `<button type="button" class="btn soft sm" data-open-rate="${escapeHtml(
+      item.id
+    )}">Edit</button>`;
+  } else if (mode === "rec") {
+    action = `
+      <button type="button" class="btn soft sm" data-quick-want="${escapeHtml(item.id)}">Want</button>
+      <button type="button" class="btn soft sm" data-open-rate="${escapeHtml(item.id)}">Rate</button>
+      <button type="button" class="btn ghost sm" data-dismiss-rec="${escapeHtml(
+        item.id
+      )}">Not interested</button>`;
+  } else {
+    action = `
+      <button type="button" class="btn soft sm" data-quick-want="${escapeHtml(item.id)}">Want</button>
+      <button type="button" class="btn soft sm" data-open-rate="${escapeHtml(item.id)}">${
+        entry ? "Update" : "Rate"
+      }</button>`;
+  }
 
   return `
-    <article class="m-card">
+    <article class="m-card" data-rec-id="${escapeHtml(item.id)}">
       <div class="m-card-top">
         <div class="poster-wrap sm">
           ${posterHtml(item, "sm")}
@@ -1660,6 +2027,21 @@ function openFullDescription(id) {
 
 function setupCards() {
   document.getElementById("main")?.addEventListener("click", (e) => {
+    const dismissId = e.target.closest("[data-dismiss-rec]")?.dataset.dismissRec;
+    if (dismissId) {
+      e.preventDefault();
+      e.stopPropagation();
+      dismissRecommendation(dismissId);
+      showToast("Hidden from For you");
+      return;
+    }
+    const wantId = e.target.closest("[data-quick-want]")?.dataset.quickWant;
+    if (wantId) {
+      e.preventDefault();
+      e.stopPropagation();
+      quickWant(wantId);
+      return;
+    }
     const descId = e.target.closest("[data-full-desc]")?.dataset.fullDesc;
     if (descId) {
       e.preventDefault();

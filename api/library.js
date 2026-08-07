@@ -47,8 +47,11 @@ module.exports = async function handler(req, res) {
       const existing = await getLibrary(userId);
       const profile =
         lib.profile !== undefined ? lib.profile : existing.profile || null;
+      const dismissed = Array.isArray(lib.dismissed)
+        ? lib.dismissed
+        : existing.dismissed || [];
 
-      await saveLibrary(userId, { items, profile });
+      await saveLibrary(userId, { items, profile, dismissed });
       return json(res, 200, { ok: true, saved: items.length });
     }
 

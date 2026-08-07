@@ -716,9 +716,21 @@ h1 {
   background: var(--gold);
 }
 
+.tile-badge.soon {
+  color: #0f1419;
+  background: var(--teal);
+}
+
 .tile-badge.stars {
   color: var(--gold);
   letter-spacing: 0.04em;
+}
+
+.rail-empty {
+  margin: 0;
+  padding: 1rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.9rem;
 }
 
 .tile-title {

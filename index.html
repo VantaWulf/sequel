@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f1419" />
     <title>Sequel · what to watch & read next</title>
-    <link rel="stylesheet" href="styles.css?v=4" />
+    <link rel="stylesheet" href="styles.css?v=5" />
   </head>
   <body class="auth-locked">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -97,7 +97,7 @@
           <div class="panel-head">
             <div>
               <h1>Home</h1>
-              <p class="sub">Fresh movies, shows, and books — tap any cover to rate or save.</p>
+              <p class="sub">What’s out now, what’s coming soon — tap any cover to rate or save.</p>
             </div>
           </div>
 
@@ -107,6 +107,13 @@
               <button type="button" class="linkish" data-jump-browse="movie">See all</button>
             </div>
             <div class="poster-rail" id="rail-movies"></div>
+          </section>
+
+          <section class="rail-section" aria-labelledby="coming-soon-h">
+            <div class="rail-head">
+              <h2 id="coming-soon-h">Coming soon</h2>
+            </div>
+            <div class="poster-rail" id="rail-coming-soon"></div>
           </section>
 
           <section class="rail-section" aria-labelledby="new-tv-h">
@@ -433,7 +440,7 @@
       </form>
     </dialog>
 
-    <script src="data.js?v=11"></script>
-    <script src="app.js?v=11"></script>
+    <script src="data.js?v=12"></script>
+    <script src="app.js?v=12"></script>
   </body>
 </html>

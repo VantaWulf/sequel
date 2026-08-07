@@ -1106,16 +1106,55 @@ function renderProfile() {
   }
 }
 
+/** Prefer 2025+ titles; exclude unreleased “coming soon” from New rows. */
 function newReleases(type, limit = 12) {
+  const nowYear = new Date().getFullYear();
+  const cutoff = Math.max(2025, nowYear - 1);
   return catalog()
-    .filter((c) => c.type === type && (c.newRelease || (c.year && c.year >= 2022)))
-    .sort((a, b) => (b.year || 0) - (a.year || 0))
+    .filter(
+      (c) =>
+        c.type === type &&
+        !c.comingSoon &&
+        (c.newRelease || (c.year && c.year >= cutoff))
+    )
+    .sort((a, b) => {
+      const da = a.releaseDate || `${a.year || 0}-01-01`;
+      const db = b.releaseDate || `${b.year || 0}-01-01`;
+      return db.localeCompare(da) || (b.year || 0) - (a.year || 0);
+    })
     .slice(0, limit);
 }
 
-function trendingPicks(limit = 12) {
-  // Popular evergreen + recent mix
+function comingSoonPicks(limit = 14) {
+  const today = new Date().toISOString().slice(0, 10);
   return catalog()
+    .filter((c) => {
+      if (c.comingSoon) return !c.releaseDate || c.releaseDate >= today;
+      // auto: dated future titles not yet marked released
+      return !!(c.releaseDate && c.releaseDate > today);
+    })
+    .sort((a, b) => {
+      const da = a.releaseDate || "9999-12-31";
+      const db = b.releaseDate || "9999-12-31";
+      return da.localeCompare(db);
+    })
+    .slice(0, limit);
+}
+
+function formatReleaseLabel(item) {
+  if (!item.releaseDate) return item.year ? String(item.year) : "";
+  try {
+    const d = new Date(`${item.releaseDate}T12:00:00`);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return item.releaseDate;
+  }
+}
+
+function trendingPicks(limit = 12) {
+  // Popular evergreen + recent mix (skip pure coming-soon placeholders)
+  return catalog()
+    .filter((c) => !c.comingSoon)
     .slice()
     .sort((a, b) => {
       const sa = (a.newRelease ? 20 : 0) + (a.year || 0) / 1000;
@@ -1128,11 +1167,17 @@ function trendingPicks(limit = 12) {
 function posterTileHtml(item) {
   const map = libraryMap();
   const entry = map.get(item.id);
-  const badge = entry?.rating
-    ? `<span class="tile-badge stars">${starsText(entry.rating)}</span>`
-    : item.newRelease
-      ? `<span class="tile-badge new">New</span>`
-      : "";
+  let badge = "";
+  if (entry?.rating) {
+    badge = `<span class="tile-badge stars">${starsText(entry.rating)}</span>`;
+  } else if (item.comingSoon) {
+    badge = `<span class="tile-badge soon">Soon</span>`;
+  } else if (item.newRelease || (item.year && item.year >= new Date().getFullYear())) {
+    badge = `<span class="tile-badge new">New</span>`;
+  }
+  const meta = item.comingSoon
+    ? [formatReleaseLabel(item) || item.year, typeLabel(item.type)].filter(Boolean).join(" · ")
+    : [item.year, typeLabel(item.type)].filter(Boolean).join(" · ");
   return `
     <div class="poster-tile">
       <button type="button" class="poster-tile-hit" data-open-rate="${escapeHtml(item.id)}">
@@ -1141,9 +1186,7 @@ function posterTileHtml(item) {
           ${badge}
         </div>
         <span class="tile-title">${escapeHtml(item.title)}</span>
-        <span class="tile-meta">${escapeHtml(
-          [item.year, typeLabel(item.type)].filter(Boolean).join(" · ")
-        )}</span>
+        <span class="tile-meta">${escapeHtml(meta)}</span>
       </button>
       <button type="button" class="desc-link tile-desc" data-full-desc="${escapeHtml(
         item.id
@@ -1154,10 +1197,17 @@ function posterTileHtml(item) {
 
 function renderHome() {
   const movies = document.getElementById("rail-movies");
+  const coming = document.getElementById("rail-coming-soon");
   const tv = document.getElementById("rail-tv");
   const books = document.getElementById("rail-books");
   const trending = document.getElementById("rail-trending");
-  if (movies) movies.innerHTML = newReleases("movie", 14).map(posterTileHtml).join("");
+  if (movies) movies.innerHTML = newReleases("movie", 16).map(posterTileHtml).join("");
+  if (coming) {
+    const soon = comingSoonPicks(16);
+    coming.innerHTML = soon.length
+      ? soon.map(posterTileHtml).join("")
+      : `<p class="rail-empty">No upcoming titles queued yet.</p>`;
+  }
   if (tv) tv.innerHTML = newReleases("tv", 14).map(posterTileHtml).join("");
   if (books) books.innerHTML = newReleases("book", 14).map(posterTileHtml).join("");
   if (trending) trending.innerHTML = trendingPicks(14).map(posterTileHtml).join("");

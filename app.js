@@ -1665,10 +1665,21 @@ function renderRecs() {
   hydratePosters(list);
 }
 
+function isWantEntry(entry) {
+  // Pure want-list: status want and no meaningful rating yet
+  return entry?.status === "want" && !(Number(entry.rating) > 0);
+}
+
 function renderLibrary() {
-  const list = document.getElementById("library-list");
+  const wantList = document.getElementById("library-want-list");
+  const loggedList = document.getElementById("library-list");
+  const wantSection = document.getElementById("lib-want-section");
+  const loggedSection = document.getElementById("lib-logged-section");
   const empty = document.getElementById("library-empty");
-  if (!list) return;
+  const wantCountEl = document.getElementById("lib-want-count");
+  const loggedCountEl = document.getElementById("lib-logged-count");
+  if (!wantList || !loggedList) return;
+
   let items = load().items.slice();
   if (state.libType !== "all") {
     items = items.filter((e) => {
@@ -1676,17 +1687,36 @@ function renderLibrary() {
       return it && it.type === state.libType;
     });
   }
-  items.sort((a, b) => (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || ""));
-  list.innerHTML = items
-    .map((entry) => {
-      const item = resolveItem(entry.id);
-      if (!item) return "";
-      return mediaCardHtml(item, { mode: "library", entry });
-    })
-    .join("");
-  empty.hidden = items.length > 0;
+
+  const wants = items
+    .filter(isWantEntry)
+    .sort((a, b) =>
+      (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || "")
+    );
+  const logged = items
+    .filter((e) => !isWantEntry(e))
+    .sort((a, b) =>
+      (b.updatedAt || b.createdAt || "").localeCompare(a.updatedAt || a.createdAt || "")
+    );
+
+  const card = (entry) => {
+    const item = resolveItem(entry.id);
+    if (!item) return "";
+    return mediaCardHtml(item, { mode: "library", entry });
+  };
+
+  wantList.innerHTML = wants.map(card).join("");
+  loggedList.innerHTML = logged.map(card).join("");
+
+  if (wantSection) wantSection.hidden = wants.length === 0;
+  if (loggedSection) loggedSection.hidden = logged.length === 0;
+  if (wantCountEl) wantCountEl.textContent = String(wants.length);
+  if (loggedCountEl) loggedCountEl.textContent = String(logged.length);
+  if (empty) empty.hidden = wants.length + logged.length > 0;
+
   updateStat();
-  hydratePosters(list);
+  hydratePosters(wantList);
+  hydratePosters(loggedList);
 }
 
 function renderBrowse() {

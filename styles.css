@@ -448,6 +448,50 @@ h1 {
   gap: 0.75rem;
 }
 
+/* Library: Want vs Logged sections */
+.lib-section {
+  margin: 0 0 1.35rem;
+}
+
+.lib-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.2rem;
+}
+
+.lib-section-title {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: -0.01em;
+}
+
+.lib-section-count {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--gold);
+  background: var(--gold-soft);
+  border: 1px solid rgba(232, 196, 122, 0.25);
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+#lib-want-section .lib-section-count {
+  color: var(--rose);
+  background: rgba(232, 160, 181, 0.14);
+  border-color: rgba(232, 160, 181, 0.3);
+}
+
+.lib-section-sub {
+  margin: 0 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
 .empty {
   color: var(--muted);
   text-align: center;

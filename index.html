@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0f1419" />
     <title>Sequel · what to watch & read next</title>
-    <link rel="stylesheet" href="styles.css?v=6" />
+    <link rel="stylesheet" href="styles.css?v=7" />
   </head>
   <body class="auth-locked">
     <a class="skip-link" href="#main">Skip to content</a>
@@ -167,7 +167,7 @@
           <div class="panel-head">
             <div>
               <h1>Library</h1>
-              <p class="sub">Everything you’ve watched or read, with your rating.</p>
+              <p class="sub">Want list first, then everything you’ve rated or logged.</p>
             </div>
             <button type="button" class="btn primary sm" id="open-add-btn">Add</button>
           </div>
@@ -177,9 +177,28 @@
             <button type="button" class="chip" data-lib-type="tv">TV</button>
             <button type="button" class="chip" data-lib-type="book">Books</button>
           </div>
-          <div id="library-list" class="card-list"></div>
+
+          <section class="lib-section" id="lib-want-section" hidden>
+            <div class="lib-section-head">
+              <h2 class="lib-section-title">Want to</h2>
+              <span class="lib-section-count" id="lib-want-count">0</span>
+            </div>
+            <p class="lib-section-sub">Saved for later — not counted as rated yet.</p>
+            <div id="library-want-list" class="card-list"></div>
+          </section>
+
+          <section class="lib-section" id="lib-logged-section" hidden>
+            <div class="lib-section-head">
+              <h2 class="lib-section-title">Logged &amp; rated</h2>
+              <span class="lib-section-count" id="lib-logged-count">0</span>
+            </div>
+            <p class="lib-section-sub">Finished, in progress, dropped, and anything with a star rating.</p>
+            <div id="library-list" class="card-list"></div>
+          </section>
+
           <p class="empty" id="library-empty">
-            Nothing here yet. Tap <strong>Add</strong> to log a movie, show, or book.
+            Nothing here yet. Tap <strong>Add</strong> or <strong>Want</strong> on a poster to start your
+            list.
           </p>
         </section>
 
@@ -442,6 +461,6 @@
     </dialog>
 
     <script src="data.js?v=12"></script>
-    <script src="app.js?v=13"></script>
+    <script src="app.js?v=14"></script>
   </body>
 </html>
